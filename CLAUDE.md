@@ -15,8 +15,8 @@ spec, merge and escalation decisions can only be passed by a human at a real ter
 
 ## Rules
 
-- **Readable by an engineer, clean, explicit.** Type hints, a docstring on every public function, one module per
-  concern. Tests read as a spec: one test per rule, named after the rule.
+- Type hints, a docstring on every public function, one module per concern.
+- Tests read as a spec: one test per rule, named after the rule.
 - Python ≥ 3.11, standard library only. Tests: `python -m unittest discover -s gates/tests`.
 - English only. No emoji, no marketing adjectives, no private jargon or abbreviations a reader has to decode.
 - Never edit `gates.json`, a verdict or a progress log by hand; they change only through `gates/cli.py` and
