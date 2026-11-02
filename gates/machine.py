@@ -113,8 +113,8 @@ REFUSALS: dict[str, str] = {
     ),
     # Submission for review: in_progress -> in_review.
     "concerns_missing": (
-        "{task} cannot go to review: no Concerns table was found in its contract {contract}. "
-        "Add a `## Concerns` section with a `Concern | Status | Note` table."
+        "{task} cannot go to review: its contract {contract} has no Concerns table with at least one row. "
+        "Add a `## Concerns` section with a `Concern | Status | Note` table and one row per concern."
     ),
     "concerns_unfilled": (
         "{task} cannot go to review: these concerns have no status: {concerns}. "
@@ -184,8 +184,28 @@ REFUSALS: dict[str, str] = {
         "gh returned '{value}' as the head of pull request #{pr}, which is not a 40-character commit SHA."
     ),
     "merge_state_changed": (
-        "{task} changed while its pull request head was being read (state or pull request number differ). "
+        "{task} changed while its pull request head was being read "
+        "(it is no longer as it was when the approval began). "
         "Run the merge approval again."
+    ),
+    # Refusals of gates/cli.py that are not transitions.
+    "new_planner_only": (
+        "only the planner creates tasks, not {actor}. "
+        "Ask the planner to run `python gates/cli.py new --actor planner ...`."
+    ),
+    "path_outside_root": (
+        "the path {path} is outside the project root {root}. "
+        "Give a path inside the project, relative to the directory that holds the store."
+    ),
+    "note_empty": (
+        "{task}: the note is empty. Write what was done, what is left and what is uncertain."
+    ),
+    "note_heading": (
+        "{task}: the note contains a line starting with '## ', which would read as a new progress entry. "
+        "Use '###' or plain text."
+    ),
+    "file_unreadable": (
+        "the file {path} cannot be read ({detail}). Check that it is a readable file inside the project."
     ),
 }
 """Every refusal message in the kit: rule name -> message template, filled with `str.format`."""
