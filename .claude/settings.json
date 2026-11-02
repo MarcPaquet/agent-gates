@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Bash(python gates/approve.py *)",
+      "Bash(python3 gates/approve.py *)",
+      "Bash(python -m gates.approve *)",
+      "Bash(python3 -m gates.approve *)",
+      "Bash(./gates/approve.py *)",
+      "Bash(gates/approve.py *)",
+      "Bash(*gates/approve.py*)",
+      "Bash(*gates.approve*)",
+      "Edit(/gates.json)",
+      "Edit(/gates.json.lock)",
+      "Edit(/progress/**)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr create *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gate-guard.sh",
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  }
+}
