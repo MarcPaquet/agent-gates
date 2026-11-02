@@ -184,7 +184,8 @@ REFUSALS: dict[str, str] = {
         "gh returned '{value}' as the head of pull request #{pr}, which is not a 40-character commit SHA."
     ),
     "merge_state_changed": (
-        "{task} changed while its pull request head was being read (state or pull request number differ). "
+        "{task} changed while its pull request head was being read "
+        "(it is no longer as it was when the approval began). "
         "Run the merge approval again."
     ),
     # Refusals of gates/cli.py that are not transitions.
