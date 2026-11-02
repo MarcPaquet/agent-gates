@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# The store's lock file and the temp files of its atomic writes (gates/store.py)
+gates.json.lock
+*.tmp
+
+# Local git worktrees
+.worktrees/
+
+# macOS
+.DS_Store

@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Core tests
+        run: python -m unittest discover -s gates/tests -v
+      # The next two steps run only when their files exist: the core works without the Claude Code adapter,
+      # and the example app is written by the worker during task T-001.
+      - name: Claude Code guard test
+        if: hashFiles('.claude/hooks/test-gate-guard.sh') != ''
+        run: bash .claude/hooks/test-gate-guard.sh
+      - name: Example app tests
+        if: hashFiles('example/linkcheck/tests/test_*.py') != ''
+        run: python -m unittest discover -s example/linkcheck/tests -v

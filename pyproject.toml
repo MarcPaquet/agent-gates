@@ -1,0 +1,20 @@
+# Metadata only. The kit has no dependencies and is run from the repository root:
+# python gates/cli.py ... and python gates/approve.py ...
+[project]
+name = "agent-gates"
+version = "0.1.0"
+description = "Gates around coding agents: separate plan, build and review roles, a verdict file the state machine requires, and human-only spec, merge and escalation decisions."
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX",
+]
+
+[project.urls]
+Repository = "https://github.com/MarcPaquet/agent-gates"
