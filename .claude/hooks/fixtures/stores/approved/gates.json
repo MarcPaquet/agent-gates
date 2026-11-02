@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "items": {
+    "T-001": {
+      "id": "T-001",
+      "title": "fixture task T-001",
+      "state": "pr_open",
+      "contract": "contracts/T-001.md",
+      "owns": [
+        "example/T-001/**"
+      ],
+      "dispatched_to": "worker",
+      "dispatched_at": "2026-11-02T12:00:00Z",
+      "pr": 7,
+      "review_cycles": 0,
+      "verdicts": [
+        "reviews/T-001-verdict-c1.md"
+      ],
+      "merge_approved_head": "3f2c9a1b7d4e6f8091a2b3c4d5e6f708192a3b4c",
+      "merge_approved_at": "2026-11-02T13:00:00Z",
+      "escalation": null,
+      "history": []
+    },
+    "T-002": {
+      "id": "T-002",
+      "title": "fixture task T-002",
+      "state": "pr_open",
+      "contract": "contracts/T-002.md",
+      "owns": [
+        "example/T-002/**"
+      ],
+      "dispatched_to": "worker",
+      "dispatched_at": "2026-11-02T12:00:00Z",
+      "pr": 8,
+      "review_cycles": 0,
+      "verdicts": [
+        "reviews/T-002-verdict-c1.md"
+      ],
+      "merge_approved_head": null,
+      "merge_approved_at": null,
+      "escalation": null,
+      "history": []
+    },
+    "T-003": {
+      "id": "T-003",
+      "title": "fixture task T-003",
+      "state": "in_review",
+      "contract": "contracts/T-003.md",
+      "owns": [
+        "example/T-003/**"
+      ],
+      "dispatched_to": "worker",
+      "dispatched_at": "2026-11-02T12:00:00Z",
+      "pr": 9,
+      "review_cycles": 0,
+      "verdicts": [
+        "reviews/T-003-verdict-c1.md"
+      ],
+      "merge_approved_head": "0000000000000000000000000000000000000001",
+      "merge_approved_at": "2026-11-02T13:00:00Z",
+      "escalation": null,
+      "history": []
+    }
+  }
+}
