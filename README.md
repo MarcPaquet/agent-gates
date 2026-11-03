@@ -71,9 +71,10 @@ Every form takes `--comment TEXT`, recorded in the history.
 **The merge go.** `approve.py T-001 --merge` is refused unless the task is in `pr_open` with a pull request number
 recorded. It reads the pull request's head with `gh pr view N --json headRefOid`, then records it as
 `merge_approved_head`, provided the task did not change while `gh` ran. It prints the one merge command an agent
-may then run, `gh pr merge N --squash --match-head-commit <SHA>`; the adapter's guard denies any other form of
-`gh pr merge`, and that form unless a task in `pr_open` has that pull request and that head approved. The go is
-not a transition: the task stays in `pr_open`. A move back to `in_review` after a push clears it.
+may then run, `gh pr merge N --squash --match-head-commit <SHA>`. The adapter's guard denies any `gh pr merge`
+without `--match-head-commit <SHA>` (the method flags `--squash`, `--merge` and `--rebase`, and `--delete-branch`
+and `--auto`, are allowed beside it), and denies it unless a task in `pr_open` has that pull request and that head
+approved. The go is not a transition: the task stays in `pr_open`. A move back to `in_review` after a push clears it.
 
 ## The state machine
 
@@ -122,7 +123,8 @@ state, no such transition, wrong actor, then the guards of the row in the order 
 
 ### Refusals
 
-Every refusal message in the kit lives in `machine.REFUSALS`. `gates/cli.py` and `gates/approve.py` print it on
+Every refusal message of the state machine lives in `machine.REFUSALS`; the adapter's guard has its own (see
+[`.claude/README.md`](.claude/README.md)). `gates/cli.py` and `gates/approve.py` print it on
 standard error as `refused: <message>` and exit with status 1; a usage error exits with status 2. The placeholders
 in braces are filled with the task's values. The store's own errors (the lock held by another command for more
 than 5 seconds, an unreadable store file, an invalid new task) come from `gates/store.py` with their own messages.
@@ -270,7 +272,7 @@ worker ran as Sonnet at low effort, each reviewer as Opus at high effort.
    flagged, wrote a new note and submitted again.
 5. **Cycle 2 passed.** A new reviewer ran the checks and the mutants again; both fetching mutants now failed the
    test. The [second verdict](reviews/T-001-verdict-c2.md) is PASS, with one should-fix left open (the directory
-   test does not catch a checker that skips sorting) and two notes. Pull request #11 was opened and the reviewer
+   test does not catch a checker that skips sorting) and three notes. Pull request #11 was opened and the reviewer
    moved the task to `pr_open`.
 6. **The merge went around the merge go.** The human merged pull request #11 in the GitHub web interface without
    running `approve.py T-001 --merge` first, so `merge_approved_head` stayed empty. The human then closed the
