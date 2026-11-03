@@ -4,16 +4,18 @@
     "T-001": {
       "id": "T-001",
       "title": "Markdown link checker (example app)",
-      "state": "draft",
+      "state": "in_review",
       "contract": "contracts/T-001.md",
       "owns": [
         "example/linkcheck/**"
       ],
-      "dispatched_to": null,
-      "dispatched_at": null,
+      "dispatched_to": "worker",
+      "dispatched_at": "2026-11-03T16:06:10Z",
       "pr": null,
-      "review_cycles": 0,
-      "verdicts": [],
+      "review_cycles": 1,
+      "verdicts": [
+        "reviews/T-001-verdict-c1.md"
+      ],
       "merge_approved_head": null,
       "merge_approved_at": null,
       "escalation": null,
@@ -24,6 +26,49 @@
           "to": "draft",
           "actor": "planner",
           "reason": "created"
+        },
+        {
+          "at": "2026-11-02T23:32:40Z",
+          "from": "draft",
+          "to": "ready",
+          "actor": "human",
+          "reason": "spec approved"
+        },
+        {
+          "at": "2026-11-03T15:48:00Z",
+          "from": "ready",
+          "to": "in_progress",
+          "actor": "planner",
+          "reason": "dispatched to worker"
+        },
+        {
+          "at": "2026-11-03T16:00:13Z",
+          "from": "in_progress",
+          "to": "in_review",
+          "actor": "worker",
+          "reason": "submitted for review"
+        },
+        {
+          "at": "2026-11-03T16:05:35Z",
+          "from": "in_review",
+          "to": "changes_requested",
+          "actor": "reviewer",
+          "reason": "review failed: reviews/T-001-verdict-c1.md",
+          "verdict": "reviews/T-001-verdict-c1.md"
+        },
+        {
+          "at": "2026-11-03T16:06:10Z",
+          "from": "changes_requested",
+          "to": "in_progress",
+          "actor": "planner",
+          "reason": "dispatched again after a failed review"
+        },
+        {
+          "at": "2026-11-03T16:08:53Z",
+          "from": "in_progress",
+          "to": "in_review",
+          "actor": "worker",
+          "reason": "submitted for review"
         }
       ]
     }
