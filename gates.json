@@ -92,13 +92,13 @@
     "T-002": {
       "id": "T-002",
       "title": "linkcheck: skip files that are not UTF-8, pin the output order",
-      "state": "draft",
+      "state": "in_progress",
       "contract": "contracts/T-002.md",
       "owns": [
         "example/linkcheck/**"
       ],
-      "dispatched_to": null,
-      "dispatched_at": null,
+      "dispatched_to": "worker",
+      "dispatched_at": "2026-11-03T17:05:15Z",
       "pr": null,
       "review_cycles": 0,
       "verdicts": [],
@@ -112,6 +112,20 @@
           "to": "draft",
           "actor": "planner",
           "reason": "created"
+        },
+        {
+          "at": "2026-11-03T17:05:09Z",
+          "from": "draft",
+          "to": "ready",
+          "actor": "human",
+          "reason": "spec approved"
+        },
+        {
+          "at": "2026-11-03T17:05:15Z",
+          "from": "ready",
+          "to": "in_progress",
+          "actor": "planner",
+          "reason": "dispatched to worker"
         }
       ]
     }
