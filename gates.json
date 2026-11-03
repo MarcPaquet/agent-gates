@@ -92,7 +92,7 @@
     "T-002": {
       "id": "T-002",
       "title": "linkcheck: skip files that are not UTF-8, pin the output order",
-      "state": "in_progress",
+      "state": "in_review",
       "contract": "contracts/T-002.md",
       "owns": [
         "example/linkcheck/**"
@@ -150,6 +150,13 @@
           "to": "in_progress",
           "actor": "planner",
           "reason": "dispatched again after a failed review"
+        },
+        {
+          "at": "2026-11-03T17:14:13Z",
+          "from": "in_progress",
+          "to": "in_review",
+          "actor": "worker",
+          "reason": "submitted for review"
         }
       ]
     }
