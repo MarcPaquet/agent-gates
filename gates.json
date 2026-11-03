@@ -4,13 +4,13 @@
     "T-001": {
       "id": "T-001",
       "title": "Markdown link checker (example app)",
-      "state": "changes_requested",
+      "state": "in_progress",
       "contract": "contracts/T-001.md",
       "owns": [
         "example/linkcheck/**"
       ],
       "dispatched_to": "worker",
-      "dispatched_at": "2026-11-03T15:48:00Z",
+      "dispatched_at": "2026-11-03T16:06:10Z",
       "pr": null,
       "review_cycles": 1,
       "verdicts": [
@@ -55,6 +55,13 @@
           "actor": "reviewer",
           "reason": "review failed: reviews/T-001-verdict-c1.md",
           "verdict": "reviews/T-001-verdict-c1.md"
+        },
+        {
+          "at": "2026-11-03T16:06:10Z",
+          "from": "changes_requested",
+          "to": "in_progress",
+          "actor": "planner",
+          "reason": "dispatched again after a failed review"
         }
       ]
     }

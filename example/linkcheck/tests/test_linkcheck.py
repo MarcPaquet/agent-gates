@@ -55,10 +55,28 @@ class LinkcheckTest(unittest.TestCase):
             "[w](https://example.invalid/x) [h](http://example.invalid/y)\n"
             "[m](mailto:someone@example.invalid)\n[s](#section)\n",
         )
-        with mock.patch.object(
-            socket, "socket", side_effect=lambda *a, **k: self.fail("network used")
+        calls: list[tuple] = []
+
+        def refuse(*args: object, **kwargs: object) -> None:
+            calls.append((args, kwargs))
+            raise OSError("network is not allowed")
+
+        with mock.patch.object(socket, "socket", refuse), mock.patch.object(
+            socket, "getaddrinfo", refuse
         ):
-            self.assertEqual(run(f), (0, "", ""))
+            result = run(f)
+        self.assertEqual(result, (0, "", ""))
+        self.assertEqual(calls, [])
+
+    def test_directory_files_are_named_from_the_argument_and_sorted(self) -> None:
+        self.write("docs/sub/a.md", "[x](gone-a.md)\n")
+        self.write("docs/b.md", "ok\n\n[y](gone-b.md#top)\n")
+        status, out, _ = run(f"{self.root}/docs/")
+        base = f"{self.root}/docs"
+        self.assertEqual(status, 1)
+        self.assertEqual(
+            out, f"{base}/b.md:3: gone-b.md#top\n{base}/sub/a.md:1: gone-a.md\n"
+        )
 
     def test_all_links_resolve_exits_zero_without_output(self) -> None:
         self.write("docs/sub/a.md", "[ok](../b.md)\n")
