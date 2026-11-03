@@ -23,7 +23,7 @@ jobs:
       - name: Core tests
         run: python -m unittest discover -s gates/tests -v
       # The next two steps run only when their files exist: the core works without the Claude Code adapter,
-      # and the example app is written by the worker during task T-001.
+      # and the example app is written by the worker of a task (T-001, then T-002).
       - name: Claude Code guard test
         if: hashFiles('.claude/hooks/test-gate-guard.sh') != ''
         run: bash .claude/hooks/test-gate-guard.sh

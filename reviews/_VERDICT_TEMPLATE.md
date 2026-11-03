@@ -5,7 +5,7 @@ the file, it is never edited; the next cycle gets a new file.
 
 ## Reviewed
 
-- Pull request: <number>
+- Pull request: <number, or "none yet" when the review runs before the pull request is opened>
 - Head commit: <40-character SHA>
 - Contract: <contracts/T-NNN.md>
 
