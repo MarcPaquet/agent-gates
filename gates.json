@@ -4,7 +4,7 @@
     "T-001": {
       "id": "T-001",
       "title": "Markdown link checker (example app)",
-      "state": "in_progress",
+      "state": "in_review",
       "contract": "contracts/T-001.md",
       "owns": [
         "example/linkcheck/**"
@@ -62,6 +62,13 @@
           "to": "in_progress",
           "actor": "planner",
           "reason": "dispatched again after a failed review"
+        },
+        {
+          "at": "2026-11-03T16:08:53Z",
+          "from": "in_progress",
+          "to": "in_review",
+          "actor": "worker",
+          "reason": "submitted for review"
         }
       ]
     }
