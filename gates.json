@@ -88,6 +88,77 @@
           "reason": "merged in the GitHub UI without the merge-approval step"
         }
       ]
+    },
+    "T-002": {
+      "id": "T-002",
+      "title": "linkcheck: skip files that are not UTF-8, pin the output order",
+      "state": "in_review",
+      "contract": "contracts/T-002.md",
+      "owns": [
+        "example/linkcheck/**"
+      ],
+      "dispatched_to": "worker",
+      "dispatched_at": "2026-11-03T17:13:28Z",
+      "pr": null,
+      "review_cycles": 1,
+      "verdicts": [
+        "reviews/T-002-verdict-c1.md"
+      ],
+      "merge_approved_head": null,
+      "merge_approved_at": null,
+      "escalation": null,
+      "history": [
+        {
+          "at": "2026-11-03T17:03:05Z",
+          "from": null,
+          "to": "draft",
+          "actor": "planner",
+          "reason": "created"
+        },
+        {
+          "at": "2026-11-03T17:05:09Z",
+          "from": "draft",
+          "to": "ready",
+          "actor": "human",
+          "reason": "spec approved"
+        },
+        {
+          "at": "2026-11-03T17:05:15Z",
+          "from": "ready",
+          "to": "in_progress",
+          "actor": "planner",
+          "reason": "dispatched to worker"
+        },
+        {
+          "at": "2026-11-03T17:07:31Z",
+          "from": "in_progress",
+          "to": "in_review",
+          "actor": "worker",
+          "reason": "submitted for review"
+        },
+        {
+          "at": "2026-11-03T17:12:58Z",
+          "from": "in_review",
+          "to": "changes_requested",
+          "actor": "reviewer",
+          "reason": "review failed: reviews/T-002-verdict-c1.md",
+          "verdict": "reviews/T-002-verdict-c1.md"
+        },
+        {
+          "at": "2026-11-03T17:13:28Z",
+          "from": "changes_requested",
+          "to": "in_progress",
+          "actor": "planner",
+          "reason": "dispatched again after a failed review"
+        },
+        {
+          "at": "2026-11-03T17:14:13Z",
+          "from": "in_progress",
+          "to": "in_review",
+          "actor": "worker",
+          "reason": "submitted for review"
+        }
+      ]
     }
   }
 }

@@ -40,7 +40,10 @@ def _files_for(arg: str) -> list[tuple[str, Path]]:
 
 
 def main(argv: list[str]) -> int:
-    """Check the files and folders in argv; return 0 clean, 1 broken links, 2 usage error."""
+    """Check the files and folders in argv.
+
+    Return 0 clean, 1 broken links, 2 usage error or a file skipped as not valid UTF-8.
+    """
     if not argv:
         print("usage: linkcheck.py PATH...", file=sys.stderr)
         return 2
@@ -49,12 +52,19 @@ def main(argv: list[str]) -> int:
             print(f"linkcheck: path does not exist: {arg}", file=sys.stderr)
             return 2
     status = 0
+    skipped = False
     for arg in argv:
         for name, path in _files_for(arg):
-            for number, target in broken_links(path):
+            try:
+                found = broken_links(path)
+            except UnicodeDecodeError:
+                print(f"linkcheck: {name}: not valid UTF-8, skipped", file=sys.stderr)
+                skipped = True
+                continue
+            for number, target in found:
                 print(f"{name}:{number}: {target}")
                 status = 1
-    return status
+    return 2 if skipped else status
 
 
 if __name__ == "__main__":
