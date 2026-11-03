@@ -6,6 +6,10 @@ __pycache__/
 gates.json.lock
 *.tmp
 
+# Secrets and per-user harness settings
+.env*
+.claude/settings.local.json
+
 # Local git worktrees
 .worktrees/
 

@@ -8,7 +8,7 @@ The planner copies this file to `contracts/T-NNN.md` and replaces every angle-br
 
 ## Spec
 
-<Link to the spec file, for example `specs/T-NNN.md`.>
+<Link to the spec file, for example `example/linkcheck/SPEC.md`, and the parts of it this task covers.>
 
 ## Owns
 

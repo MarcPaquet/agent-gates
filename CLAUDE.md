@@ -1,7 +1,8 @@
 # agent-gates
 
 A small, tool-agnostic kit that puts gates around coding agents: who plans, who builds and who reviews are
-separate roles; a reviewer's verdict is a file the state machine requires before a pull request may open; and the
+separate roles; a reviewer's verdict is a file the state machine requires before a task's pull request may be
+recorded as open; and the
 spec, merge and escalation decisions can only be passed by a human at a real terminal.
 
 ## Layout
@@ -11,13 +12,14 @@ spec, merge and escalation decisions can only be passed by a human at a real ter
 - `contracts/`, `progress/`, `reviews/`, `gates.json` — the workflow's own records, committed.
 - `roles/` — planner, worker, reviewer, in harness-neutral prose.
 - `.claude/` — the Claude Code adapter used in this repo: deny tiers, `hooks/gate-guard.sh`, agent files.
-- `example/linkcheck/` — the toy app built through the gate (task T-001).
+- `example/linkcheck/` — the toy app built through the gate (tasks T-001 and T-002).
 
 ## Rules
 
 - Type hints, a docstring on every public function, one module per concern.
 - Tests read as a spec: one test per rule, named after the rule.
-- Python ≥ 3.11, standard library only. Tests: `python -m unittest discover -s gates/tests`.
+- Python ≥ 3.11, standard library only. Tests: `python -m unittest discover -s gates/tests`, and
+  `python -m unittest discover -s example/linkcheck/tests` for the example app.
 - English only. No emoji, no marketing adjectives, no private jargon or abbreviations a reader has to decode.
 - Never edit `gates.json`, a verdict or a progress log by hand; they change only through `gates/cli.py` and
   `gates/approve.py`.

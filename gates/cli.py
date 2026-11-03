@@ -7,7 +7,7 @@ also takes `--store PATH` before the command name):
     python gates/cli.py dispatch T-001 --actor planner [--to worker]
     python gates/cli.py note T-001 --actor worker "what was done, what is left"
     python gates/cli.py transition T-001 in_review --actor worker
-    python gates/cli.py transition T-001 pr_open --actor reviewer --verdict reviews/T-001-1.md --pr 7
+    python gates/cli.py transition T-001 pr_open --actor reviewer --verdict reviews/T-001-verdict-c1.md --pr 7
     python gates/cli.py transition T-001 escalated --actor worker --reason R --tried T --options O --recommends X
     python gates/cli.py show T-001
     python gates/cli.py board
@@ -462,6 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     def add_actor(command: argparse.ArgumentParser) -> None:
+        """Add the required `--actor` option to one subcommand."""
         command.add_argument(
             "--actor", required=True, choices=machine.ACTORS,
             help="who runs the command; human is refused here (the human uses gates/approve.py)",
