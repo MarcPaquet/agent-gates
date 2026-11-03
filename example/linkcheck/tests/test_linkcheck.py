@@ -110,25 +110,27 @@ class LinkcheckTest(unittest.TestCase):
         bad.parent.mkdir(parents=True)
         bad.write_bytes(b"\xff\xfe[x](gone.md)\n")
         self.write("docs/b.md", "[y](missing.md)\n")
-        base = f"{self.root}/docs"
+        old = os.getcwd()
+        self.addCleanup(os.chdir, old)
+        os.chdir(self.root)
         self.assertEqual(
-            run(base),
+            run("docs"),
             (
                 2,
-                f"{base}/b.md:1: missing.md\n",
-                f"linkcheck: {base}/a.md: not valid UTF-8, skipped\n",
+                "docs/b.md:1: missing.md\n",
+                "linkcheck: docs/a.md: not valid UTF-8, skipped\n",
             ),
         )
         only = self.root / "only"
         only.mkdir()
         (only / "a.md").write_bytes(b"\xff\xfe")
         self.assertEqual(
-            run(str(only)),
-            (2, "", f"linkcheck: {only}/a.md: not valid UTF-8, skipped\n"),
+            run("only"),
+            (2, "", "linkcheck: only/a.md: not valid UTF-8, skipped\n"),
         )
         self.assertEqual(
-            run(str(bad)),
-            (2, "", f"linkcheck: {bad}: not valid UTF-8, skipped\n"),
+            run("./docs/a.md"),
+            (2, "", "linkcheck: ./docs/a.md: not valid UTF-8, skipped\n"),
         )
 
     def test_links_on_one_line_follow_their_position(self) -> None:
@@ -143,7 +145,9 @@ class LinkcheckTest(unittest.TestCase):
             self.write(f"docs/{n}.md", f"[l](gone-{n}.md)\n")
         base = f"{self.root}/docs"
         expected = "".join(f"{base}/{n}.md:1: gone-{n}.md\n" for n in sorted(names))
-        self.assertEqual(run(base), (1, expected, ""))
+        unsorted = [Path(base) / f"{n}.md" for n in names]
+        with mock.patch.object(Path, "rglob", lambda self, pattern: iter(unsorted)):
+            self.assertEqual(run(base), (1, expected, ""))
 
 
 if __name__ == "__main__":
