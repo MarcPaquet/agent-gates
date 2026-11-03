@@ -228,6 +228,7 @@ against the committed store.
 $ python gates/cli.py board
 ID     STATE  OWNER   CYCLES  PR   TITLE
 T-001  done   worker  1       #11  Markdown link checker (example app)
+T-002  done   worker  1       #14  linkcheck: skip files that are not UTF-8, ...
 ```
 
 ```
@@ -251,7 +252,35 @@ refused: T-001 is done, a terminal state, and no transition leaves it. If more w
 
 The third command exits with status 1 and leaves `gates.json` unchanged: `done` is terminal.
 
-## The example run
+## The example runs
+
+Two tasks ran through the gate in this repository. T-002 shows the whole loop as designed, with both human
+commands; T-001 shows a merge that went around the merge go.
+
+### T-002: the gate as designed
+
+T-002 changed the link checker so a file that is not valid UTF-8 is skipped and named instead of crashing the run,
+and pinned the output order with tests ([contract](contracts/T-002.md), spec AC4 and AC5,
+[progress log](progress/T-002.md)). `python gates/cli.py history T-002` shows every step.
+
+1. The planner wrote the spec change and the contract and created the task in `draft`. The human approved the
+   spec with `approve.py T-002 ready`.
+2. The planner dispatched it. The worker changed `linkcheck.py`, added three tests, and submitted it for review.
+3. **Cycle 1 failed.** The [first verdict](reviews/T-002-verdict-c1.md) found that the new test passed absolute
+   paths, so a checker that named the skipped file wrongly passed every test. It also noted that the sort test
+   depended on the order the filesystem lists a folder.
+4. The planner dispatched the retry. A new worker changed only the tests: exact names from the fixture root, and
+   a fixed `Path.rglob` order for the sort test.
+5. **Cycle 2 passed.** The [second verdict](reviews/T-002-verdict-c2.md) records 12 mutants, each failing the
+   test named for it. Pull request #14 was opened and the reviewer moved the task to `pr_open`.
+6. **The merge went through the merge go.** The human ran `approve.py T-002 --merge` at a terminal outside the
+   agent session (the same command run from inside it was refused and recorded nothing). It recorded the pull
+   request's head, `8a8b6ff`. The agent then merged in the form the go prints,
+   `gh pr merge 14 --squash --match-head-commit` with that full head, and the planner closed the task with
+   `done`. As for T-001, the records written after the pull request opened reached `main` in a follow-up pull
+   request.
+
+### T-001: a merge around the gate
 
 T-001 is the kit run on itself: a Markdown link checker ([spec](example/linkcheck/SPEC.md),
 [contract](contracts/T-001.md)), built in `example/linkcheck/` through the gate and merged into this repository.
@@ -284,13 +313,13 @@ worker ran as Sonnet at low effort, each reviewer as Opus at high effort.
 ## Honest limits
 
 - This kit is a rewrite of a workflow used by one developer on one private project since 2026-09. In this
-  repository it has run one task, T-001. There is no claim of adoption.
+  repository it has run two tasks, T-001 and T-002. There is no claim of adoption.
 - Roles are self-declared: an agent passes `--actor`. They are separated by the harness's permission tiers and
   hooks, not by the library.
 - Only the human is identity-checked, by an interactive terminal and an agent environment variable.
 - The merge gate depends on the harness honouring hooks, and it binds only merges an agent runs. A merge in the
-  GitHub web interface goes around the merge go, as T-001 shows. GitHub branch protection, or a required check
-  that reads the store, could close that gap; neither is part of the kit.
+  GitHub web interface goes around the merge go, as T-001 shows; T-002 shows the go used. GitHub branch
+  protection, or a required check that reads the store, could close that gap; neither is part of the kit.
 - A process that writes the store without the library bypasses the lock.
 - The store lives in the repository, so every task needs a follow-up pull request: the records written after a
   pull request opens (`pr_open`, the merge go, `done`) cannot be pushed to that pull request without sending the
@@ -322,13 +351,13 @@ agent-gates/
 │   ├── cli.py                     the agents' seven commands
 │   ├── approve.py                 the human's command
 │   └── tests/                     one test per rule
-├── contracts/                     _TEMPLATE.md and T-001.md
-├── progress/T-001.md              the worker's log, written by `note`
-├── reviews/                       _VERDICT_TEMPLATE.md, T-001-verdict-c1.md, T-001-verdict-c2.md
+├── contracts/                     _TEMPLATE.md, T-001.md, T-002.md
+├── progress/                      the workers' logs, T-001.md and T-002.md, written by `note`
+├── reviews/                       _VERDICT_TEMPLATE.md and the four verdicts of T-001 and T-002
 ├── gates.json                     the store, committed
 ├── roles/                         planner.md, worker.md, reviewer.md
 ├── .claude/                       the Claude Code adapter: settings.json, hooks/, agents/, README.md
-└── example/linkcheck/             the example app, its spec and its tests, built as T-001
+└── example/linkcheck/             the example app, its spec and its tests, built as T-001 and T-002
 ```
 
 ## Running the tests
