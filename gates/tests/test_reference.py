@@ -1,4 +1,4 @@
-"""Specification of README.md: its states, transitions and refusals tables say what gates/machine.py does."""
+"""Specification of docs/reference.md: its states, transitions and refusals tables say what gates/machine.py does."""
 
 import re
 import unittest
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from gates import machine
 
-README = Path(__file__).resolve().parents[2] / "README.md"
+REFERENCE = Path(__file__).resolve().parents[2] / "docs" / "reference.md"
 
 _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 _CODE_SPAN = re.compile(r"(`+)(.*)\1", re.DOTALL)
@@ -20,7 +20,7 @@ def table_rows(text: str, heading: str) -> list[list[str]]:
     """
     lines = text.splitlines()
     if heading not in lines:
-        raise AssertionError(f"README.md has no heading line {heading!r}")
+        raise AssertionError(f"docs/reference.md has no heading line {heading!r}")
     table: list[str] = []
     for line in lines[lines.index(heading) + 1:]:
         if line.startswith("#"):
@@ -52,11 +52,11 @@ def cell_text(cell: str) -> str:
     return inner
 
 
-class ReadmeTablesTest(unittest.TestCase):
-    """The README's three tables are the machine's own constants, written out."""
+class ReferenceTablesTest(unittest.TestCase):
+    """The reference's three tables are the machine's own constants, written out."""
 
     def setUp(self) -> None:
-        self.text = README.read_text(encoding="utf-8")
+        self.text = REFERENCE.read_text(encoding="utf-8")
 
     def test_states_table_lists_exactly_the_machine_states(self) -> None:
         rows = table_rows(self.text, "### States")

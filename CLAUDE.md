@@ -10,6 +10,8 @@ spec, merge and escalation decisions can only be passed by a human at a real ter
 - `gates/` — the core: `machine.py` (states, transitions, refusals; pure functions), `store.py` (JSON store, lock,
   atomic write), `cli.py` (agents' commands), `approve.py` (human only), `tests/`.
 - `contracts/`, `progress/`, `reviews/`, `gates.json` — the workflow's own records, committed.
+- `docs/reference.md` — the roles table, the state machine's tables, the command line, the walls, the example runs
+  step by step, the layout; `gates/tests/test_reference.py` keeps its tables equal to `gates/machine.py`.
 - `roles/` — planner, worker, reviewer, in harness-neutral prose.
 - `.claude/` — the Claude Code adapter used in this repo: deny tiers, `hooks/gate-guard.sh`, agent files.
 - `example/linkcheck/` — the toy app built through the gate (tasks T-001 and T-002).
