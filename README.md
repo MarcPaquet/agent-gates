@@ -109,8 +109,8 @@ Each step, and what each verdict found, is in
 
 ## Honest limits
 
-- This kit is a rewrite of a workflow used by one developer on one private project since 2026-09. In this
-  repository it has run two tasks, T-001 and T-002. There is no claim of adoption.
+- This kit is rewritten from a workflow in use on a private project. In this repository it has run two tasks,
+  T-001 and T-002.
 - Roles are self-declared: an agent passes `--actor`. They are separated by the harness's permission tiers and
   hooks, not by the library.
 - Only the human is identity-checked, by an interactive terminal and an agent environment variable.
