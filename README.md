@@ -7,7 +7,8 @@ separates who plans, who builds and who reviews; makes the reviewer's verdict a 
 before a task's pull request may be recorded as open; and keeps the three decisions that matter — spec, merge, escalation — behind gates
 only a human at a real terminal can pass.
 
-What each gate stops, and what it does not, is stated under [Honest limits](#honest-limits).
+It fits a repository where several people or agents work, and no change may be merged without a passing review and
+a human's go. What each gate stops, and what it does not, is stated under [Limits](#limits).
 
 The core is plain Python 3.11 or later with no dependencies: a state machine (`gates/machine.py`), a JSON store
 (`gates/store.py`), the agents' command line (`gates/cli.py`) and the human's command (`gates/approve.py`). It is
@@ -85,7 +86,7 @@ The third command exits with status 1 and leaves `gates.json` unchanged: `done` 
 
 ## The example runs
 
-Two tasks ran through the gate in this repository. T-002 shows the whole loop as designed, with both human
+The committed store holds two example tasks. T-002 shows the whole loop as designed, with both human
 commands; T-001 shows a merge that went around the merge go.
 
 ### T-002: the gate as designed
@@ -107,10 +108,8 @@ last line of `history T-001`, under [Try it](#try-it), records it.
 Each step, and what each verdict found, is in
 [the example runs, step by step](docs/reference.md#the-example-runs-step-by-step).
 
-## Honest limits
+## Limits
 
-- This kit is rewritten from a workflow in use on a private project. In this repository it has run two tasks,
-  T-001 and T-002.
 - Roles are self-declared: an agent passes `--actor`. They are separated by the harness's permission tiers and
   hooks, not by the library.
 - Only the human is identity-checked, by an interactive terminal and an agent environment variable.
@@ -122,17 +121,7 @@ Each step, and what each verdict found, is in
   pull request opens (`pr_open`, the merge go, `done`) cannot be pushed to that pull request without sending the
   task back to review.
 
-## Cut from the private version
-
-The kit keeps the gates and leaves out the rest of the workflow it was rewritten from:
-
-- Stories above tasks.
-- A `blocked` state with aging.
-- Counters of CI failures per task.
-- A separate decision state with architecture decision records; here a decision is an escalation with a reason.
-- Rules for screenshots of user-interface changes.
-- Desktop notifications.
-- A mirror of the board in another tool.
+## Reference
 
 The roles table, the merge go, the state machine, the command line, the walls and the layout are in
 [`docs/reference.md`](docs/reference.md).
