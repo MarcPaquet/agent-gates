@@ -3,9 +3,11 @@
 [![tests](https://github.com/MarcPaquet/agent-gates/actions/workflows/tests.yml/badge.svg)](https://github.com/MarcPaquet/agent-gates/actions/workflows/tests.yml)
 
 Coding agents grade their own work, edit test assertions until they pass, and merge if nothing stops them. This kit
-separates who plans, who builds and who reviews; makes the reviewer's verdict a file the state machine requires
-before a task's pull request may be recorded as open; and keeps the three decisions that matter — spec, merge, escalation — behind gates
-only a human at a real terminal can pass.
+separates who plans, who builds and who reviews; makes the reviewer's verdict, which names the commit it reviewed,
+a file the state machine requires before a task's pull request may be recorded as open; and keeps the three
+decisions that matter — spec, merge, escalation — behind gates only a human at a real terminal can pass. The gates
+stop an agent's accidental moves and record every step; they are not a security boundary against an agent set on
+getting around them.
 
 It fits a repository where several people or agents work, and no change may be merged without a passing review and
 a human's go. What each gate stops, and what it does not, is stated under [Limits](#limits).
@@ -48,7 +50,8 @@ Each role is one screen of harness-neutral prose: the [planner](roles/planner.md
 and moves the task, the [worker](roles/worker.md) builds inside the paths the task owns, and the
 [reviewer](roles/reviewer.md) checks the work against the contract and writes the verdict. The human approves the
 spec, resolves escalations and gives the go to merge a pull request at its head, with `gates/approve.py` at a
-terminal. Who may do what, the human's commands and the merge go are in the
+terminal. The go is refused unless that head is the one the passing verdict names, or follows it with changes to
+records only (the store, progress logs, verdicts). Who may do what, the human's commands and the merge go are in the
 [reference](docs/reference.md#roles-and-the-humans-decisions).
 
 ## Try it
@@ -116,6 +119,8 @@ Each step, and what each verdict found, is in
 - The merge gate depends on the harness honouring hooks, and it binds only merges an agent runs. A merge in the
   GitHub web interface goes around the merge go, as T-001 shows; T-002 shows the go used. GitHub branch
   protection, or a required check that reads the store, could close that gap; neither is part of the kit.
+- Changes to records after a passing review (the store, a progress log, a verdict) do not void it, and no one
+  reviews them. The merge go reads the comparison with the reviewed head from GitHub, through `gh`.
 - A process that writes the store without the library bypasses the lock.
 - The store lives in the repository, so every task needs a follow-up pull request: the records written after a
   pull request opens (`pr_open`, the merge go, `done`) cannot be pushed to that pull request without sending the

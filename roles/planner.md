@@ -20,7 +20,9 @@ After a failed review the task is in changes_requested; send it back for one ret
 
     python gates/cli.py dispatch T-NNN --actor planner
 
-After a push to an open pull request, send the task back to review with the new head:
+After a push to an open pull request that changes anything but records (`gates.json`, `progress/*.md`,
+`reviews/*.md`), send the task back to review with the new head; the human's merge go is refused until a passing
+review covers it:
 
     python gates/cli.py transition T-NNN in_review --actor planner --head <40-character sha>
 

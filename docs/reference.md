@@ -32,8 +32,12 @@ python gates/approve.py T-001 --merge      # approve the open pull request for m
 Every form takes `--comment TEXT`, recorded in the history.
 
 **The merge go.** `approve.py T-001 --merge` is refused unless the task is in `pr_open` with a pull request number
-recorded. It reads the pull request's head with `gh pr view N --json headRefOid`, then records it as
-`merge_approved_head`, provided the task did not change while `gh` ran. It prints the one merge command an agent
+and a reviewed head recorded. It reads the pull request's head with `gh pr view N --json headRefOid`. When that
+head is not the reviewed head, it asks GitHub for the comparison of the two (`gh api
+repos/{owner}/{repo}/compare/<reviewed>...<head>`) and refuses unless the head follows the reviewed head and
+every file changed since, a renamed file under both names, is a record: `gates.json`, or a Markdown file directly
+in `progress/` or `reviews/`. Those are the commits that carry the verdict and the store moves after the review.
+It then records the head as `merge_approved_head`, provided the task did not change while `gh` ran. It prints the one merge command an agent
 may then run, `gh pr merge N --squash --match-head-commit <SHA>`. The adapter's guard denies any `gh pr merge`
 without `--match-head-commit <SHA>` (the method flags `--squash`, `--merge` and `--rebase`, and `--delete-branch`
 and `--auto`, are allowed beside it), and denies it unless a task in `pr_open` has that pull request and that head
@@ -68,10 +72,10 @@ No transition leaves a terminal state. A task holds its `owns` globs in `in_prog
 | `draft` | `ready` | human | The actor is the human, which only `gates/approve.py` can be. |
 | `ready` | `in_progress` | planner | The contract file exists, the task owns at least one glob, and no dispatched task's globs overlap them. Records who the task went to and when. |
 | `in_progress` | `in_review` | worker | The contract has a Concerns table with at least one row and every row's Status is `addressed`, `not applicable` or `deferred`; the progress log has an entry written at or after the dispatch. |
-| `in_review` | `changes_requested` | reviewer | `--verdict` names an existing file with exactly one `Overall: FAIL` line, not recorded for an earlier review. Adds one to `review_cycles`. |
-| `in_review` | `pr_open` | reviewer | `--verdict` names an existing file with exactly one `Overall: PASS` line, not recorded for an earlier review; `--pr N` is a positive integer. |
+| `in_review` | `changes_requested` | reviewer | `--verdict` names an existing file with exactly one `Overall: FAIL` line, not recorded by any task before, with one `Head commit:` line starting with the full SHA reviewed and one `Contract:` line naming the task's contract. Adds one to `review_cycles`; the history records the head. |
+| `in_review` | `pr_open` | reviewer | The same verdict checks, with `Overall: PASS`; `--pr N` is a positive integer. Records the verdict's head as the task's `reviewed_head`. |
 | `changes_requested` | `in_progress` | planner | `review_cycles` is below 2, then the same checks as the first dispatch. After the second failed review the retry is refused and the planner escalates instead. Resets the dispatch time, so the worker must write a new note. |
-| `pr_open` | `in_review` | planner | `--head` is a full 40-character commit SHA (the pull request's new head). Clears the merge go; spends no review cycle. |
+| `pr_open` | `in_review` | planner | `--head` is a full 40-character commit SHA (the pull request's new head). Clears the reviewed head and the merge go; spends no review cycle. |
 | `pr_open` | `done` | planner, human | Nothing: the command line does not check that the pull request was merged. |
 | `ready` | `escalated` | planner, worker, reviewer | `--reason`, `--tried`, `--options` and `--recommends` are all given and not empty. |
 | `in_progress` | `escalated` | planner, worker, reviewer | As above. |
@@ -111,17 +115,23 @@ than 5 seconds, an unreadable store file, an invalid new task) come from `gates/
 | `verdict_file_missing` | `` {task}: the verdict file {path} does not exist. The reviewer writes it before recording the review. `` |
 | `verdict_overall_missing` | `` {task}: the verdict file {path} has no single `Overall: PASS` or `Overall: FAIL` line. Write exactly one. `` |
 | `verdict_overall_mismatch` | `` {task}: the verdict file {path} says `Overall: {found}`, but moving to {to_state} needs `Overall: {expected}`. `` |
-| `verdict_reused` | `` {task}: the verdict file {path} was already recorded for an earlier review. Each review writes a new verdict file. `` |
+| `verdict_reused` | `` {task}: the verdict file {path} was already recorded for a review of {owner}. Each review writes a new verdict file. `` |
+| `verdict_head_missing` | `` {task}: the verdict file {path} has no single `Head commit:` line giving the full 40-character SHA of the commit reviewed. Write exactly one. `` |
+| `verdict_contract_mismatch` | `` {task}: the verdict file {path} names the contract {found}, but the task's contract is {contract}. Write one `Contract:` line with {contract}. `` |
 | `pr_missing` | `` {task}: moving to pr_open needs the pull request number. Pass --pr N with a positive integer. `` |
 | `head_invalid` | `` {task}: '{head}' is not a commit SHA. Pass --head with the full 40-character lowercase hexadecimal SHA of the pull request head. `` |
 | `escalation_incomplete` | `` {task}: an escalation needs --reason, --tried, --options and --recommends, so the human can decide without asking. Missing: {missing}. `` |
 | `merge_wrong_state` | `` {task} is {state}. A merge can only be approved while its pull request is open (pr_open). `` |
 | `merge_no_pr` | `` {task} has no pull request number recorded, so there is nothing to approve for merge. `` |
+| `merge_no_reviewed_head` | `` {task} has no reviewed head recorded, so no review covers its pull request. The planner moves the task back to in_review with --head, and the reviewer reviews that head. `` |
+| `merge_head_not_reviewed` | `` {task}: pull request #{pr} is at {head}, which does not contain the reviewed head {reviewed}. The planner moves the task back to in_review with --head {head}, and the reviewer reviews that head. `` |
+| `merge_unreviewed_changes` | `` {task}: since the reviewed head {reviewed}, pull request #{pr} changed files that are not records: {paths}. The planner moves the task back to in_review with --head {head}, and the reviewer reviews that head. `` |
 | `human_actor_in_cli` | `` --actor human is refused: an agent cannot act as the human. Human decisions are made with `python gates/approve.py` at a terminal. `` |
 | `agent_environment` | `` approve.py is the human's command and refuses to run in an agent session ({variable} is set). Run it yourself at a terminal. `` |
 | `not_interactive` | `` approve.py needs an interactive terminal and its standard input is not one. Run it yourself at a terminal. `` |
 | `pr_head_unavailable` | `` could not read the head commit of pull request #{pr} with gh: {detail} `` |
 | `pr_head_invalid` | `` gh returned '{value}' as the head of pull request #{pr}, which is not a 40-character commit SHA. `` |
+| `compare_unavailable` | `` could not compare the reviewed head {reviewed} with head {head} of pull request #{pr} with gh: {detail} `` |
 | `merge_state_changed` | `` {task} changed while its pull request head was being read (it is no longer as it was when the approval began). Run the merge approval again. `` |
 | `new_planner_only` | `` only the planner creates tasks, not {actor}. Ask the planner to run `python gates/cli.py new --actor planner ...`. `` |
 | `path_outside_root` | `` the path {path} is outside the project root {root}. Give a path inside the project, relative to the directory that holds the store. `` |
@@ -158,7 +168,8 @@ python gates/cli.py history T-002
 
 **The store** is one JSON file, `gates.json`, committed, so `history T-001` works from a clone. A task has these
 keys, in this order: `id`, `title`, `state`, `contract`, `owns`, `dispatched_to`, `dispatched_at`, `pr`,
-`review_cycles`, `verdicts`, `merge_approved_head`, `merge_approved_at`, `escalation`, `history`. `escalation` is
+`review_cycles`, `verdicts`, `reviewed_head`, `merge_approved_head`, `merge_approved_at`, `escalation`, `history`.
+A task written before `reviewed_head` existed, such as T-001 and T-002, has no such key. `escalation` is
 null, or holds the four escalation fields with the state the task came from, the actor and the time. Every command
 that writes the store holds an exclusive lock on `gates.json.lock` from reading the store to writing it back, and
 writes it atomically (temp file, fsync, rename). The lock uses `fcntl`, so the kit runs on POSIX systems such as macOS and Linux, not on Windows.

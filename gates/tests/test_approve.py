@@ -14,6 +14,7 @@ from gates import approve, cli, machine, store
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HEAD = "0123456789abcdef0123456789abcdef01234567"
 NEW_HEAD = "fedcba9876543210fedcba9876543210fedcba98"
+REVIEWED_HEAD = "00112233445566778899aabbccddeeff00112233"
 HUMAN_ENVIRON: dict[str, str] = {}
 
 
@@ -30,18 +31,37 @@ class FakeStdin:
 
 
 class FakeGh:
-    """A stand-in for `subprocess.run` that records each call and answers like `gh pr view` would."""
+    """A stand-in for `subprocess.run` that records each call and answers like `gh` would.
 
-    def __init__(self, stdout: str = HEAD + "\n", returncode: int = 0, stderr: str = "") -> None:
-        """Set the answer every call returns."""
+    `gh pr view` gets `stdout`, `returncode` and `stderr`; `gh api` (the comparison with the reviewed head) gets
+    `compare_stdout`, `compare_returncode` and `compare_stderr`.
+    """
+
+    def __init__(
+        self,
+        stdout: str = HEAD + "\n",
+        returncode: int = 0,
+        stderr: str = "",
+        compare_stdout: str = "identical\n",
+        compare_returncode: int = 0,
+        compare_stderr: str = "",
+    ) -> None:
+        """Set the answers the calls return."""
         self.stdout = stdout
         self.returncode = returncode
         self.stderr = stderr
+        self.compare_stdout = compare_stdout
+        self.compare_returncode = compare_returncode
+        self.compare_stderr = compare_stderr
         self.calls: list[list[str]] = []
 
     def __call__(self, command: list[str], **options: Any) -> subprocess.CompletedProcess:
-        """Record the command and return the set answer."""
+        """Record the command and return the answer set for its kind."""
         self.calls.append(command)
+        if command[:2] == ["gh", "api"]:
+            return subprocess.CompletedProcess(
+                command, self.compare_returncode, stdout=self.compare_stdout, stderr=self.compare_stderr
+            )
         return subprocess.CompletedProcess(command, self.returncode, stdout=self.stdout, stderr=self.stderr)
 
 
@@ -98,9 +118,12 @@ class ApproveTestCase(unittest.TestCase):
         data["items"]["T-001"].update(fields)
         store.save(self.store_path, data)
 
-    def pr_open_task(self, pr: int | None = 7) -> None:
-        """Create T-001 with its pull request open."""
-        self.task(state="pr_open", pr=pr, dispatched_to="worker", dispatched_at="2026-11-02T10:05:00Z")
+    def pr_open_task(self, pr: int | None = 7, reviewed_head: str | None = HEAD) -> None:
+        """Create T-001 with its pull request open after a passing review of `reviewed_head`."""
+        self.task(
+            state="pr_open", pr=pr, dispatched_to="worker", dispatched_at="2026-11-02T10:05:00Z",
+            reviewed_head=reviewed_head,
+        )
 
     def item(self) -> dict:
         """Return T-001 as it is in the store file."""
@@ -288,6 +311,58 @@ class MergeTest(ApproveTestCase):
         self.pr_open_task()
         self.assert_ok("T-001", "--merge", "--comment", "diff read")
         self.assertEqual(self.item()["history"][-1]["reason"], f"merge approved at head {HEAD}: diff read")
+
+    def test_the_merge_go_at_the_reviewed_head_does_not_compare(self) -> None:
+        self.pr_open_task()
+        gh = FakeGh()
+        self.assert_ok("T-001", "--merge", runner=gh)
+        self.assertEqual([command[:3] for command in gh.calls], [["gh", "pr", "view"]])
+
+    def test_the_merge_go_is_allowed_when_only_records_follow_the_reviewed_head(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout="ahead\ngates.json\nreviews/T-001-verdict-c2.md\n")
+        self.assert_ok("T-001", "--merge", runner=gh)
+        self.assertEqual(self.item()["merge_approved_head"], HEAD)
+        self.assertEqual(
+            gh.calls[1][:3], ["gh", "api", f"repos/{{owner}}/{{repo}}/compare/{REVIEWED_HEAD}...{HEAD}"]
+        )
+
+    def test_merge_is_refused_without_a_reviewed_head_before_gh_runs(self) -> None:
+        self.pr_open_task(reviewed_head=None)
+        gh = FakeGh()
+        self.assert_refused("has no reviewed head recorded", "T-001", "--merge", runner=gh)
+        self.assertEqual(gh.calls, [])
+
+    def test_merge_is_refused_when_files_other_than_records_follow_the_reviewed_head(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout="ahead\ngates.json\nexample/linkcheck/linkcheck.py\n")
+        self.assert_refused("files that are not records: example/linkcheck/linkcheck.py", "T-001", "--merge",
+                            runner=gh)
+        self.assertIsNone(self.item()["merge_approved_head"])
+
+    def test_a_renamed_file_counts_under_its_old_path(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout="ahead\nreviews/notes.md\nexample/linkcheck/linkcheck.py\n")
+        self.assert_refused("example/linkcheck/linkcheck.py", "T-001", "--merge", runner=gh)
+
+    def test_merge_is_refused_when_the_head_does_not_contain_the_reviewed_head(self) -> None:
+        for status in ("behind", "diverged"):
+            with self.subTest(status=status):
+                self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+                gh = FakeGh(compare_stdout=f"{status}\ngates.json\n")
+                self.assert_refused("which does not contain the reviewed head", "T-001", "--merge", runner=gh)
+
+    def test_merge_is_refused_when_the_comparison_cannot_be_read(self) -> None:
+        answers = (
+            FakeGh(compare_stdout="", compare_returncode=1, compare_stderr="HTTP 404: Not Found"),
+            FakeGh(compare_stdout="\n"),
+            FakeGh(compare_stdout="ahead\n" + "reviews/x.md\n" * approve.COMPARE_FILE_LIMIT),
+        )
+        for gh in answers:
+            with self.subTest(stdout=gh.compare_stdout[:20]):
+                self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+                self.assert_refused("could not compare the reviewed head", "T-001", "--merge", runner=gh)
+                self.assertIsNone(self.item()["merge_approved_head"])
 
     def test_merge_is_refused_when_the_task_is_not_pr_open(self) -> None:
         self.task(state="in_review", pr=7)

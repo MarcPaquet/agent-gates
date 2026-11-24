@@ -34,6 +34,14 @@ UNFILLED_CONTRACT = """# T-001 contract
 """
 
 
+REVIEWED_HEAD = "00112233445566778899aabbccddeeff00112233"
+
+
+def verdict(overall: str, head: str = REVIEWED_HEAD, contract: str = "contracts/T-001.md") -> str:
+    """Return a verdict file for T-001 with the given Overall value, reviewed head and contract lines."""
+    return f"# Verdict\n\n## Reviewed\n\n- Head commit: {head}\n- Contract: {contract}\n\nOverall: {overall}\n"
+
+
 def utc(text: str) -> datetime:
     """Return the UTC datetime of an ISO 8601 time like `2026-11-02T18:27:37Z`."""
     return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
@@ -123,6 +131,37 @@ class ParseVerdictOverallTest(unittest.TestCase):
 
     def test_an_overall_value_on_the_next_line_does_not_count(self) -> None:
         self.assertIsNone(cli.parse_verdict_overall("Overall:\nPASS\n"))
+
+
+class ParseVerdictFieldsTest(unittest.TestCase):
+    """The single Head commit and Contract lines of a verdict."""
+
+    def test_the_head_is_the_full_sha_starting_the_head_commit_line(self) -> None:
+        sha = REVIEWED_HEAD
+        for line in (f"- Head commit: {sha}", f"Head commit: `{sha}`", f"* Head commit: {sha} (records after it)"):
+            with self.subTest(line=line):
+                self.assertEqual(cli.parse_verdict_head(f"# Verdict\n\n{line}\n"), sha)
+
+    def test_a_head_that_is_not_a_full_lowercase_sha_gives_none(self) -> None:
+        for value in ("<40-character SHA>", REVIEWED_HEAD[:7], REVIEWED_HEAD.upper(), REVIEWED_HEAD + "0", ""):
+            with self.subTest(value=value):
+                self.assertIsNone(cli.parse_verdict_head(f"- Head commit: {value}\n"))
+
+    def test_two_head_commit_lines_give_none(self) -> None:
+        text = f"- Head commit: {REVIEWED_HEAD}\n- Head commit: {REVIEWED_HEAD}\n"
+        self.assertIsNone(cli.parse_verdict_head(text))
+
+    def test_a_head_commit_line_inside_a_fence_does_not_count(self) -> None:
+        self.assertIsNone(cli.parse_verdict_head(f"```\n- Head commit: {REVIEWED_HEAD}\n```\n"))
+
+    def test_the_contract_is_the_normalised_path_on_the_contract_line(self) -> None:
+        for value in ("contracts/T-001.md", "`contracts/T-001.md`", "./contracts/../contracts/T-001.md"):
+            with self.subTest(value=value):
+                self.assertEqual(cli.parse_verdict_contract(f"- Contract: {value}\n"), "contracts/T-001.md")
+
+    def test_no_or_an_empty_contract_line_gives_none(self) -> None:
+        self.assertIsNone(cli.parse_verdict_contract("# Verdict\n"))
+        self.assertIsNone(cli.parse_verdict_contract("- Contract:   \n"))
 
 
 class ParseProgressTimesTest(unittest.TestCase):
@@ -297,7 +336,7 @@ class HappyPathTest(CliTestCase):
             self.assert_ok("transition", "T-001", "in_review", "--actor", "worker"),
             "T-001: in_progress -> in_review (worker)\n",
         )
-        self.write("reviews/T-001-c1.md", "# Review 1\n\nOverall: FAIL\n")
+        self.write("reviews/T-001-c1.md", verdict("FAIL"))
         self.assert_ok(
             "transition", "T-001", "changes_requested", "--actor", "reviewer", "--verdict", "reviews/T-001-c1.md"
         )
@@ -307,7 +346,7 @@ class HappyPathTest(CliTestCase):
         )
         self.assert_ok("note", "T-001", "--actor", "worker", "fixed the review findings")
         self.assert_ok("transition", "T-001", "in_review", "--actor", "worker")
-        self.write("reviews/T-001-c2.md", "# Review 2\n\nOverall: PASS\n")
+        self.write("reviews/T-001-c2.md", verdict("PASS", head="ffeeddccbbaa99887766554433221100ffeeddcc"))
         self.assertEqual(
             self.assert_ok(
                 "transition", "T-001", "pr_open", "--actor", "reviewer",
@@ -321,6 +360,7 @@ class HappyPathTest(CliTestCase):
         self.assertEqual(item["pr"], 7)
         self.assertEqual(item["review_cycles"], 1)
         self.assertEqual(item["verdicts"], ["reviews/T-001-c1.md", "reviews/T-001-c2.md"])
+        self.assertEqual(item["reviewed_head"], "ffeeddccbbaa99887766554433221100ffeeddcc")
 
         history = self.assert_ok("history", "T-001").splitlines()
         steps = [  # draft -> ready is the human's step, set directly by this test, so it is not in the history
@@ -333,6 +373,8 @@ class HappyPathTest(CliTestCase):
             self.assertIn(move, line)
         self.assertIn("verdict reviews/T-001-c2.md", history[-1])
         self.assertIn("pr 7", history[-1])
+        self.assertIn("head ffeeddccbbaa99887766554433221100ffeeddcc", history[-1])
+        self.assertIn(f"head {REVIEWED_HEAD}", history[-4])
 
 
 class GuardRefusalTest(CliTestCase):
@@ -401,7 +443,7 @@ class GuardRefusalTest(CliTestCase):
 
     def test_a_review_is_refused_when_the_verdict_was_already_recorded(self) -> None:
         self.in_review_task()
-        self.write("reviews/T-001-c1.md", "Overall: FAIL\n")
+        self.write("reviews/T-001-c1.md", verdict("FAIL"))
         self.assert_ok(
             "transition", "T-001", "changes_requested", "--actor", "reviewer", "--verdict", "reviews/T-001-c1.md"
         )
@@ -409,7 +451,7 @@ class GuardRefusalTest(CliTestCase):
         self.assert_ok("note", "T-001", "--actor", "worker", "fixed")
         self.assert_ok("transition", "T-001", "in_review", "--actor", "worker")
         self.assert_refused(
-            "was already recorded for an earlier review",
+            "was already recorded for a review of T-001",
             "transition", "T-001", "changes_requested", "--actor", "reviewer",
             "--verdict", "./reviews/../reviews/T-001-c1.md",
         )
@@ -438,9 +480,25 @@ class GuardRefusalTest(CliTestCase):
             "the file contracts/T-001.md cannot be read", "dispatch", "T-001", "--actor", "planner"
         )
 
+    def test_a_review_is_refused_when_the_verdict_names_no_head(self) -> None:
+        self.in_review_task()
+        self.write("reviews/T-001-c1.md", verdict("FAIL", head="<40-character SHA>"))
+        self.assert_refused(
+            "has no single `Head commit:` line",
+            "transition", "T-001", "changes_requested", "--actor", "reviewer", "--verdict", "reviews/T-001-c1.md",
+        )
+
+    def test_a_review_is_refused_when_the_verdict_names_another_contract(self) -> None:
+        self.in_review_task()
+        self.write("reviews/T-001-c1.md", verdict("FAIL", contract="contracts/T-002.md"))
+        self.assert_refused(
+            "names the contract contracts/T-002.md, but the task's contract is contracts/T-001.md",
+            "transition", "T-001", "changes_requested", "--actor", "reviewer", "--verdict", "reviews/T-001-c1.md",
+        )
+
     def test_pr_open_is_refused_without_a_pull_request_number(self) -> None:
         self.in_review_task()
-        self.write("reviews/T-001-c1.md", "Overall: PASS\n")
+        self.write("reviews/T-001-c1.md", verdict("PASS"))
         self.assert_refused(
             "moving to pr_open needs the pull request number",
             "transition", "T-001", "pr_open", "--actor", "reviewer", "--verdict", "reviews/T-001-c1.md",

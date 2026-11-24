@@ -1,6 +1,7 @@
 """Specification of gates/machine.py: one test per rule of the state machine."""
 
 import copy
+import dataclasses
 import unittest
 from typing import Any
 
@@ -14,8 +15,11 @@ OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
 
 DISPATCH = Evidence(contract_exists=True)
 SUBMIT = Evidence(concerns_found=True, progress_after_dispatch=True)
-FAILED_REVIEW = Evidence(verdict_path="reviews/T-001-1.md", verdict_exists=True, verdict_overall="FAIL")
-PASSED_REVIEW = Evidence(verdict_path="reviews/T-001-2.md", verdict_exists=True, verdict_overall="PASS", pr=7)
+REVIEWED_SHA = "00112233445566778899aabbccddeeff00112233"
+VERDICT = {"verdict_exists": True, "verdict_head": REVIEWED_SHA, "verdict_contract": "contracts/T-001.md"}
+"""The facts of a well-formed verdict for T-001, apart from its path and Overall line."""
+FAILED_REVIEW = Evidence(verdict_path="reviews/T-001-1.md", verdict_overall="FAIL", **VERDICT)
+PASSED_REVIEW = Evidence(verdict_path="reviews/T-001-2.md", verdict_overall="PASS", pr=7, **VERDICT)
 NEW_HEAD = Evidence(head=SHA)
 ESCALATION = Evidence(reason="the API changed", tried="two fixes", options="pin or port", recommends="port")
 NO_EVIDENCE = Evidence()
@@ -34,6 +38,7 @@ def make_item(item_id: str = "T-001", state: str = "draft", **fields: Any) -> di
         "pr": None,
         "review_cycles": 0,
         "verdicts": [],
+        "reviewed_head": None,
         "merge_approved_head": None,
         "merge_approved_at": None,
         "escalation": None,
@@ -373,10 +378,51 @@ class ReviewTest(RefusalAssertions):
                 store = single("in_review", verdicts=[evidence.verdict_path])
                 self.assert_refused("verdict_reused", store, to_state, "reviewer", evidence)
 
+    def test_review_is_refused_when_another_task_recorded_the_verdict(self) -> None:
+        for to_state, evidence in self.REVIEWS:
+            with self.subTest(to_state=to_state):
+                store = make_store(
+                    make_item("T-001", "in_review"),
+                    make_item("T-002", "done", owns=["docs/**"], verdicts=[evidence.verdict_path]),
+                )
+                refusal = self.assert_refused("verdict_reused", store, to_state, "reviewer", evidence)
+                self.assertIn("a review of T-002", str(refusal))
+
+    def test_review_is_refused_unless_the_verdict_names_the_full_head_reviewed(self) -> None:
+        for to_state, evidence in self.REVIEWS:
+            for head in (None, REVIEWED_SHA[:7], REVIEWED_SHA.upper()):
+                with self.subTest(to_state=to_state, head=head):
+                    broken = dataclasses.replace(evidence, verdict_head=head)
+                    self.assert_refused("verdict_head_missing", single("in_review"), to_state, "reviewer", broken)
+
+    def test_review_is_refused_unless_the_verdict_names_the_tasks_contract(self) -> None:
+        for to_state, evidence in self.REVIEWS:
+            for contract in (None, "contracts/T-002.md"):
+                with self.subTest(to_state=to_state, contract=contract):
+                    broken = dataclasses.replace(evidence, verdict_contract=contract)
+                    refusal = self.assert_refused(
+                        "verdict_contract_mismatch", single("in_review"), to_state, "reviewer", broken
+                    )
+                    self.assertIn(f"names the contract {contract or 'none'}", str(refusal))
+
+    def test_review_records_the_head_the_verdict_names(self) -> None:
+        for to_state, evidence in self.REVIEWS:
+            with self.subTest(to_state=to_state):
+                new_store = self.assert_allowed(single("in_review"), to_state, "reviewer", evidence)
+                self.assertEqual(new_store["items"]["T-001"]["history"][-1]["head"], REVIEWED_SHA)
+
+    def test_passed_review_records_the_reviewed_head_on_the_task(self) -> None:
+        new_store = self.assert_allowed(single("in_review"), "pr_open", "reviewer", PASSED_REVIEW)
+        self.assertEqual(new_store["items"]["T-001"]["reviewed_head"], REVIEWED_SHA)
+
+    def test_failed_review_records_no_reviewed_head_on_the_task(self) -> None:
+        new_store = self.assert_allowed(single("in_review"), "changes_requested", "reviewer", FAILED_REVIEW)
+        self.assertIsNone(new_store["items"]["T-001"]["reviewed_head"])
+
     def test_passed_review_is_refused_without_a_pr_number(self) -> None:
         for pr in (None, 0, -3, True):
             with self.subTest(pr=pr):
-                evidence = Evidence(verdict_path="reviews/x.md", verdict_exists=True, verdict_overall="PASS", pr=pr)
+                evidence = dataclasses.replace(PASSED_REVIEW, pr=pr)
                 self.assert_refused("pr_missing", single("in_review"), "pr_open", "reviewer", evidence)
 
     def test_review_guards_run_in_table_order(self) -> None:
@@ -463,6 +509,11 @@ class NewHeadTest(RefusalAssertions):
         item = self.assert_allowed(self.store(), "in_review", "planner", NEW_HEAD)["items"]["T-001"]
         self.assertIsNone(item["merge_approved_head"])
         self.assertIsNone(item["merge_approved_at"])
+
+    def test_new_head_clears_the_reviewed_head(self) -> None:
+        store = single("pr_open", pr=7, reviewed_head=REVIEWED_SHA)
+        item = self.assert_allowed(store, "in_review", "planner", NEW_HEAD)["items"]["T-001"]
+        self.assertIsNone(item["reviewed_head"])
 
     def test_new_head_does_not_spend_a_review_cycle(self) -> None:
         item = self.assert_allowed(self.store(), "in_review", "planner", NEW_HEAD)["items"]["T-001"]
@@ -606,24 +657,64 @@ class HistoryAndPurityTest(RefusalAssertions):
 class MergeApprovalTest(unittest.TestCase):
     """The human's merge go: recorded on an open pull request at a given head."""
 
-    def store(self) -> dict:
-        """Return a store with T-001's pull request open."""
-        return single("pr_open", pr=7)
+    RECORDS_ONLY = ("gates.json", "reviews/T-001-verdict-c2.md", "progress/T-001.md")
 
-    def assert_merge_refused(self, rule: str, store: dict, item_id: str = "T-001", head: str = SHA) -> None:
-        """Assert that the merge approval is refused for `rule`."""
+    def store(self) -> dict:
+        """Return a store with T-001's pull request open after a passing review of REVIEWED_SHA."""
+        return single("pr_open", pr=7, reviewed_head=REVIEWED_SHA)
+
+    def assert_merge_refused(
+        self,
+        rule: str,
+        store: dict,
+        item_id: str = "T-001",
+        head: str = SHA,
+        changed: tuple[str, ...] | None = (),
+    ) -> Refusal:
+        """Assert that the merge approval is refused for `rule`, and return the refusal."""
         with self.assertRaises(Refusal) as caught:
-            machine.check_merge_approval(store, item_id, head=head)
+            machine.check_merge_approval(store, item_id, head=head, changed_since_review=changed)
         self.assertEqual(caught.exception.rule, rule, str(caught.exception))
+        return caught.exception
+
+    def record(self, store: dict, head: str = SHA, changed: tuple[str, ...] | None = (), at: str = LATER) -> dict:
+        """Return the store with the merge approval recorded."""
+        return machine.record_merge_approval(store, "T-001", head=head, changed_since_review=changed, at=at)
 
     def test_merge_approval_records_the_head_and_the_time_and_keeps_the_state(self) -> None:
-        item = machine.record_merge_approval(self.store(), "T-001", head=SHA, at=LATER)["items"]["T-001"]
+        item = self.record(self.store())["items"]["T-001"]
         self.assertEqual(item["state"], "pr_open")
         self.assertEqual(item["merge_approved_head"], SHA)
         self.assertEqual(item["merge_approved_at"], LATER)
 
+    def test_merge_approval_is_allowed_when_only_records_changed_since_the_review(self) -> None:
+        item = self.record(self.store(), changed=self.RECORDS_ONLY)["items"]["T-001"]
+        self.assertEqual(item["merge_approved_head"], SHA)
+
+    def test_merge_approval_is_refused_without_a_reviewed_head(self) -> None:
+        for store in (single("pr_open", pr=7), {"version": 1, "items": {"T-001": self.legacy_item()}}):
+            with self.subTest(store=store):
+                self.assert_merge_refused("merge_no_reviewed_head", store)
+
+    def legacy_item(self) -> dict:
+        """Return T-001 open for merge as written before the store had a `reviewed_head` key."""
+        item = make_item("T-001", "pr_open", pr=7)
+        del item["reviewed_head"]
+        return item
+
+    def test_merge_approval_is_refused_when_the_head_does_not_contain_the_reviewed_head(self) -> None:
+        refusal = self.assert_merge_refused("merge_head_not_reviewed", self.store(), changed=None)
+        self.assertIn(REVIEWED_SHA, str(refusal))
+        self.assertIn(f"--head {SHA}", str(refusal))
+
+    def test_merge_approval_is_refused_when_files_other_than_records_changed_since_the_review(self) -> None:
+        changed = self.RECORDS_ONLY + ("example/linkcheck/linkcheck.py", "README.md")
+        refusal = self.assert_merge_refused("merge_unreviewed_changes", self.store(), changed=changed)
+        self.assertIn("README.md, example/linkcheck/linkcheck.py.", str(refusal))
+        self.assertNotIn("gates.json", str(refusal).split("records:")[1])
+
     def test_merge_approval_appends_a_human_history_event(self) -> None:
-        item = machine.record_merge_approval(self.store(), "T-001", head=SHA, at=LATER)["items"]["T-001"]
+        item = self.record(self.store())["items"]["T-001"]
         self.assertEqual(
             item["history"][-1],
             {
@@ -645,7 +736,7 @@ class MergeApprovalTest(unittest.TestCase):
                 self.assert_merge_refused("merge_wrong_state", single(state, pr=7))
 
     def test_merge_approval_is_refused_without_a_pr(self) -> None:
-        self.assert_merge_refused("merge_no_pr", single("pr_open"))
+        self.assert_merge_refused("merge_no_pr", single("pr_open", reviewed_head=REVIEWED_SHA))
 
     def test_merge_approval_is_refused_unless_the_head_is_a_full_lowercase_sha(self) -> None:
         for head in ("", SHA[:12], SHA.upper()):
@@ -655,13 +746,31 @@ class MergeApprovalTest(unittest.TestCase):
     def test_record_merge_approval_does_not_mutate_its_input(self) -> None:
         store = self.store()
         before = copy.deepcopy(store)
-        machine.record_merge_approval(store, "T-001", head=SHA, at=LATER)
+        self.record(store)
         self.assertEqual(store, before)
 
     def test_a_new_head_voids_the_merge_approval(self) -> None:
-        store = machine.record_merge_approval(self.store(), "T-001", head=OTHER_SHA, at=AT)
+        store = self.record(self.store(), head=OTHER_SHA, at=AT)
         store = machine.apply_transition(store, "T-001", "in_review", actor="planner", evidence=NEW_HEAD, at=LATER)
         self.assertIsNone(store["items"]["T-001"]["merge_approved_head"])
+
+
+class RecordPathTest(unittest.TestCase):
+    """is_record_path: the store and the Markdown files directly inside progress/ and reviews/."""
+
+    def test_the_store_and_markdown_files_in_the_record_folders_are_records(self) -> None:
+        for path in ("gates.json", "progress/T-001.md", "reviews/T-001-verdict-c2.md"):
+            with self.subTest(path=path):
+                self.assertTrue(machine.is_record_path(path))
+
+    def test_any_other_path_is_not_a_record(self) -> None:
+        paths = (
+            "README.md", "gates/machine.py", "contracts/T-001.md", "reviews/run.py", "reviews/sub/x.md",
+            "progress/.md", "docs/gates.json", "gates.json.lock", "reviews", "",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertFalse(machine.is_record_path(path))
 
 
 class GlobOverlapTest(unittest.TestCase):

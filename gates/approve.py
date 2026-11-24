@@ -9,8 +9,10 @@ Usage, from the repository root (`--store PATH` comes before the task id):
     python gates/approve.py T-001 ready --comment TEXT   # any form takes a comment for the history
 
 Every transition the human may make is recorded with actor `human`; the state machine in `gates/machine.py`
-refuses any other move. A merge go records the pull request's head commit, read with `gh`; a later push to the
-pull request moves the task back to in_review and clears the go, so the human approves the new head again.
+refuses any other move. A merge go records the pull request's head commit, read with `gh`. It is refused unless
+that head is the one the passing review named, or follows it with changes to records only (`gates.json`,
+`progress/*.md`, `reviews/*.md`). A later push to the pull request moves the task back to in_review and clears the
+go, so the new head is reviewed and approved again.
 
 Three walls keep an agent from running this command as the human:
 
@@ -94,6 +96,50 @@ def pr_head_sha(pr: int, *, runner: Runner = subprocess.run, env: Mapping[str, s
     return value
 
 
+COMPARE_FILE_LIMIT = 300
+"""GitHub's compare endpoint lists at most this many files; a comparison that reaches it is refused as unreadable."""
+
+
+def changes_since_review(
+    reviewed: str,
+    head: str,
+    pr: int,
+    *,
+    runner: Runner = subprocess.run,
+    env: Mapping[str, str] | None = None,
+) -> tuple[str, ...] | None:
+    """Return the paths changed from the reviewed head to `head`, or None when `head` does not contain it.
+
+    Read with `gh api repos/{owner}/{repo}/compare/<reviewed>...<head>` in the current repository. A renamed file
+    counts under both its old and its new path. Refuses with `compare_unavailable` when `gh` cannot be run, fails,
+    answers in an unexpected form, or lists as many files as the endpoint's limit.
+    """
+    command = [
+        "gh", "api", f"repos/{{owner}}/{{repo}}/compare/{reviewed}...{head}",
+        "--jq", ".status, (.files[] | .filename, (.previous_filename // empty))",
+    ]
+    process_env = dict(env) if env is not None else None
+    fields = {"reviewed": reviewed, "head": head, "pr": pr}
+    try:
+        result = runner(command, capture_output=True, text=True, check=False, env=process_env)
+    except (OSError, UnicodeDecodeError) as error:
+        raise machine.Refusal("compare_unavailable", **fields, detail=f"gh could not be run ({error})") from error
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or f"gh exited with status {result.returncode}"
+        raise machine.Refusal("compare_unavailable", **fields, detail=detail)
+    lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+    status, paths = (lines[0], tuple(lines[1:])) if lines else ("", ())
+    if status in ("behind", "diverged"):
+        return None
+    if status not in ("identical", "ahead"):
+        raise machine.Refusal("compare_unavailable", **fields, detail=f"unexpected comparison status '{status}'")
+    if len(paths) >= COMPARE_FILE_LIMIT:
+        raise machine.Refusal(
+            "compare_unavailable", **fields, detail=f"{len(paths)} paths listed, at or past the endpoint's limit"
+        )
+    return paths
+
+
 def approve_transition(store_path: Path, item_id: str, target: str, *, comment: str) -> str:
     """Move a task to `target` as the human, under the store lock. Returns the success line."""
     with store.locked(store_path) as data:
@@ -117,19 +163,23 @@ def approve_merge(
 ) -> str:
     """Record the human's go to merge the task's pull request at its current head. Returns the output lines.
 
-    The head is read with `gh` before the store lock is taken, because it is a network call. Under the lock the
-    task is read again; unless it is equal to the task read before the `gh` call, the go is refused. Any change
-    counts, including a move out of pr_open and back on the same pull request.
+    The head is read with `gh`, and compared with the head the passing review recorded: the go is refused unless
+    the head is the reviewed head, or follows it with changes to records only. Both `gh` calls run before the
+    store lock is taken, because they are network calls. Under the lock the task is read again; unless it is
+    equal to the task read before the `gh` calls, the go is refused. Any change counts, including a move out of
+    pr_open and back on the same pull request.
     """
     item = _merge_candidate(store.load(store_path), item_id)
     pr = item["pr"]
+    reviewed = item["reviewed_head"]
     head = pr_head_sha(pr, runner=runner, env=env)
+    changed = () if head == reviewed else changes_since_review(reviewed, head, pr, runner=runner, env=env)
     with store.locked(store_path) as data:
         current = data["items"].get(item_id)
         if current != item:
             raise machine.Refusal("merge_state_changed", task=item_id)
         at = store.now_iso()
-        updated = machine.record_merge_approval(data, item_id, head=head, at=at)
+        updated = machine.record_merge_approval(data, item_id, head=head, changed_since_review=changed, at=at)
         if comment.strip():
             event = updated["items"][item_id]["history"][-1]
             event["reason"] = f"{event['reason']}: {comment.strip()}"
@@ -158,6 +208,8 @@ def _merge_candidate(data: Mapping[str, Any], item_id: str) -> Mapping[str, Any]
         raise machine.Refusal("merge_wrong_state", task=item_id, state=item["state"])
     if item["pr"] is None:
         raise machine.Refusal("merge_no_pr", task=item_id)
+    if not machine.is_commit_sha(item.get("reviewed_head")):
+        raise machine.Refusal("merge_no_reviewed_head", task=item_id)
     return item
 
 
