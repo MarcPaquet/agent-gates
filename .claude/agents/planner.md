@@ -13,8 +13,8 @@ In this harness:
 - You change tasks only with `python gates/cli.py ...`. The guard hook (`.claude/hooks/gate-guard.sh`) refuses a
   hand write of `gates.json`, `progress/`, a recorded verdict or `.claude/`; a shell command that only names them,
   outside `gates/cli.py` or a read-only git command, asks the human.
-- `gates/approve.py` is the human's command. The deny rules and the hook refuse any shell command containing the word
-  approve; read files with the Read tool. When a step needs the human, say which `approve.py` command they run.
+- `gates/approve.py` is the human's command. The deny rules and the hook refuse any shell command that names it
+  (`approve.py`, `gates.approve`, an import of approve); read it with the Read tool. When a step needs the human, say which `approve.py` command they run.
 - Pushing to `main`, and merging, rebasing or pulling while `main` is checked out, are refused. A pull request merges only as
   `gh pr merge N --squash --match-head-commit SHA` after the human's merge go, with the exact head `approve.py`
   printed.

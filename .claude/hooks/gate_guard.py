@@ -709,12 +709,23 @@ def rule_permission_mode(event: dict) -> Outcome:
 # --- Rule 2: approve.py is the human's command ----------------------------------------------------------------
 
 
+APPROVE_COMMAND = re.compile(
+    r"approve\."  # the script or its compiled copy by any path (approve.py, approve.cpython-311.pyc), approve.main
+    r"|gates\.approve"  # the module: python -m gates.approve, import gates.approve
+    r"|import[^;&|]*\bapprove\b"  # from gates import approve, over several lines; __import__, import_module
+    r"|-m\s*approve\b"  # python -m approve, run from inside gates/
+)
+"""What names the human's command in a shell command's text, matched after quotes and backslashes are removed and
+case is folded. The word approve on its own (a commit message, a grep pattern) does not."""
+
+
 def rule_approve_is_the_humans(command: str) -> Outcome:
-    """Rule 2: deny any shell command whose text, with quotes and backslashes removed, contains approve, in any case."""
-    if "approve" in re.sub(r"[\"'\\]", "", command).casefold():
+    """Rule 2: deny a shell command whose text, with quotes and backslashes removed and case folded, names
+    gates/approve.py: the script by any path, the module gates.approve, or an import of approve."""
+    if APPROVE_COMMAND.search(re.sub(r"[\"'\\]", "", command).casefold()):
         return deny(
-            "a shell command containing the word approve (gates/approve.py is the human's command)",
-            "read files with the Read tool, ask the human to run approve.py, "
+            "a shell command naming gates/approve.py, the human's command",
+            "read the file with the Read tool, ask the human to run it, "
             "and put a commit message that names it in a file for git commit -F",
         )
     return PASS
