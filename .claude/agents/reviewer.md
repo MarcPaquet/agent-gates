@@ -16,8 +16,8 @@ In this harness:
   product code, even with Write or Bash.
 - Record the review with `python gates/cli.py transition ID changes_requested|pr_open --actor reviewer --verdict
   PATH [--pr N]`. The hook refuses any hand write of `gates.json`, `progress/` or `.claude/`.
-- `gates/approve.py` is the human's command. The deny rules and the hook refuse any shell command containing the word
-  approve; read files with the Read tool.
+- `gates/approve.py` is the human's command. The deny rules and the hook refuse any shell command that names it
+  (`approve.py`, `gates.approve`, an import of approve); read it with the Read tool.
 - A refusal is one line, `gate-guard: refused: <what> — <what to do instead>`. Follow the second half; do not look
   for another route to the same action. If no allowed route exists, escalate.
 - A prompt with the reason `gate-guard: cannot read this command: <why>` means the command is not on the guard's

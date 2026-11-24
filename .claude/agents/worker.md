@@ -14,8 +14,9 @@ In this harness:
   refuses a hand write of `progress/`, `gates.json`, a recorded verdict or anything in `.claude/`, by a file tool or
   a shell command. A shell command that only names them, outside `gates/cli.py` or a read-only git command, asks
   the human.
-- `gates/approve.py` is the human's command. The deny rules and the hook refuse any shell command containing the word
-  approve; read files with the Read tool, and put a commit message that names it in a file for `git commit -F`.
+- `gates/approve.py` is the human's command. The deny rules and the hook refuse any shell command that names it
+  (`approve.py`, `gates.approve`, an import of approve); read it with the Read tool, and put a commit message that
+  names it in a file for `git commit -F`.
 - Work on the task's branch: create it with `git checkout -b NAME`. Pushing to `main`, and merging, rebasing or
   pulling while `main` is checked out, are refused.
 - Always write a commit message to a file and commit with `git commit -F <file>`, and a pull request body to a
