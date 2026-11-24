@@ -198,6 +198,11 @@ API_MERGE = re.compile(
     r"pulls/[^\s/]+/merge\b|/merges\b|mergepullrequest|automerge|git/refs/heads/main\b"
 )
 """Merges and changes to main through the GitHub API, matched in lower case."""
+API_MERGE_STATUS = re.compile(r"statuses/|check-runs|agent-gates/merge-go")
+"""A commit status or a check run, or the merge go's status context by name, matched in lower case. Denied in a
+call that writes (any method but GET): only the human's merge go posts that status, which a branch protection rule
+may require."""
+MERGE_STATUS_INSTEAD = "the human's merge go posts the commit status; ask the human for the go"
 HEAD_SHA = re.compile(r"[0-9a-f]{40}")
 GH_API_OPTIONS_WITH_VALUE = (
     "-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "--input",
@@ -1029,7 +1034,8 @@ def check_pr_merge(arguments: list[str], project: Project) -> Outcome:
 
 
 def check_gh_api(words: list[str]) -> Outcome:
-    """Rule 6 for gh api: deny a merge or a change to main; ask on any method but GET, and on graphql."""
+    """Rule 6 for gh api: deny a merge, a change to main, or writing a commit status or check run; ask on any
+    method but GET, and on graphql."""
     if API_MERGE.search(" ".join(words).casefold()):
         return deny("a merge or a change to main through the GitHub API", MERGE_INSTEAD)
     arguments = words[2:]
@@ -1050,6 +1056,8 @@ def check_gh_api(words: list[str]) -> Outcome:
         if name in GH_API_BODY_OPTIONS:
             has_body = True
     method = method or ("POST" if has_body else "GET")
+    if method != "GET" and API_MERGE_STATUS.search(" ".join(words).casefold()):
+        return deny("writing a commit status or check run through the GitHub API", MERGE_STATUS_INSTEAD)
     if endpoint.casefold() == "graphql":
         return ask("gh api graphql can run any mutation, and the guard does not read the query")
     if method != "GET":
@@ -1058,9 +1066,13 @@ def check_gh_api(words: list[str]) -> Outcome:
 
 
 def check_github_api_by_url(words: list[str]) -> Outcome:
-    """Rule 6 for curl and wget (both off the allowlist, so they ask): deny a merge through api.github.com."""
-    if "api.github.com" in " ".join(words).casefold() and API_MERGE.search(" ".join(words).casefold()):
+    """Rule 6 for curl and wget (both off the allowlist, so they ask): deny a merge or a commit status through
+    api.github.com."""
+    text = " ".join(words).casefold()
+    if "api.github.com" in text and API_MERGE.search(text):
         return deny("a merge or a change to main through the GitHub API", MERGE_INSTEAD)
+    if "api.github.com" in text and API_MERGE_STATUS.search(text):
+        return deny("writing a commit status or check run through the GitHub API", MERGE_STATUS_INSTEAD)
     return PASS
 
 
