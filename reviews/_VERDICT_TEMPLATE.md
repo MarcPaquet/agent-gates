@@ -6,8 +6,12 @@ the file, it is never edited; the next cycle gets a new file.
 ## Reviewed
 
 - Pull request: <number, or "none yet" when the review runs before the pull request is opened>
-- Head commit: <40-character SHA>
+- Head commit: <the full 40-character SHA of the commit reviewed; a comment may follow it>
 - Contract: <contracts/T-NNN.md>
+
+The command line reads the Head commit and Contract lines: each must appear once, the head as a full SHA and the
+contract as the task's own contract path. A passing review records the head; the merge go is refused if the pull
+request later changes anything but records.
 
 ## Acceptance criteria
 

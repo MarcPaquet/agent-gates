@@ -1,8 +1,9 @@
 """The task store: one JSON file holding every task, read and written safely.
 
 The store is `{"version": 1, "items": {<task id>: <item>}}`. An item has these keys, in this order:
-id, title, state, contract, owns, dispatched_to, dispatched_at, pr, review_cycles, verdicts,
-merge_approved_head, merge_approved_at, escalation, history.
+id, title, state, contract, owns, dispatched_to, dispatched_at, pr, review_cycles, verdicts, reviewed_head,
+merge_approved_head, merge_approved_at, escalation, history. A task written before `reviewed_head` existed has no
+such key, and reads as having no reviewed head.
 
 Writes are atomic (temp file, fsync, rename) and commands that change the store hold an exclusive file lock
 from the moment they read it until they have written it back.
@@ -104,6 +105,7 @@ def new_item(
         "pr": None,
         "review_cycles": 0,
         "verdicts": [],
+        "reviewed_head": None,
         "merge_approved_head": None,
         "merge_approved_at": None,
         "escalation": None,

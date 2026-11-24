@@ -8,7 +8,10 @@ state machine requires it before a pull request can be marked open for merge. Th
 ## Commands
 
 Copy `reviews/_VERDICT_TEMPLATE.md` to `reviews/T-NNN-verdict-cN.md`, one new file per review cycle, and fill it.
-Replace the placeholder Overall line with exactly `Overall: PASS` or `Overall: FAIL`, alone on its line.
+Replace the placeholder Overall line with exactly `Overall: PASS` or `Overall: FAIL`, alone on its line. Fill the
+`Head commit:` line with the full SHA of the commit you reviewed and the `Contract:` line with the task's contract
+path: the command line refuses a verdict without them. A PASS records that head; the human's merge go is refused
+if the pull request later carries changes to anything but records.
 
 With a FAIL verdict, send the task back to the worker:
 

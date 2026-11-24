@@ -12,7 +12,7 @@ from gates import machine, store
 
 ITEM_KEYS = [
     "id", "title", "state", "contract", "owns", "dispatched_to", "dispatched_at", "pr", "review_cycles",
-    "verdicts", "merge_approved_head", "merge_approved_at", "escalation", "history",
+    "verdicts", "reviewed_head", "merge_approved_head", "merge_approved_at", "escalation", "history",
 ]
 AT = "2026-11-02T18:27:37Z"
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import posixpath
 import re
 import sys
 from collections.abc import Mapping
@@ -53,6 +54,8 @@ _SECTION_END = re.compile(r"#{1,2}\s")
 _TABLE_SEPARATOR_CELL = re.compile(r":?-+:?")
 _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 _OVERALL_LINE = re.compile(r"Overall:\s*(PASS|FAIL)\s*")
+_VERDICT_FIELD = re.compile(r"\s*(?:[-*+]\s+)?(Head commit|Contract):(.*)")
+_LEADING_SHA = re.compile(r"`?([0-9a-f]{40})(?![0-9A-Za-z])")
 _PROGRESS_HEADING = re.compile(r"## (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) · (\S+)[ \t]*")
 _FENCE_MARKERS: tuple[str, ...] = ("```", "~~~")
 
@@ -135,6 +138,45 @@ def parse_verdict_overall(text: str) -> str | None:
     """
     found = [match.group(1) for line in lines_outside_fences(text) if (match := _OVERALL_LINE.fullmatch(line))]
     return found[0] if len(found) == 1 else None
+
+
+def parse_verdict_field(text: str, name: str) -> str | None:
+    """Return the value after `<name>:` on the verdict's single line for that field; None for zero or several.
+
+    A field line is `Head commit: ...` or `Contract: ...`, optionally as a list item (`- Contract: ...`). The
+    value is the rest of the line, stripped. Lines inside fenced code blocks are ignored.
+    """
+    values = [
+        match.group(2).strip()
+        for line in lines_outside_fences(text)
+        if (match := _VERDICT_FIELD.fullmatch(line)) and match.group(1) == name
+    ]
+    return values[0] if len(values) == 1 else None
+
+
+def parse_verdict_head(text: str) -> str | None:
+    """Return the commit the verdict reviewed: the full SHA that starts its single `Head commit:` line.
+
+    The SHA is 40 lowercase hexadecimal characters, optionally in backticks, and may be followed by a comment
+    (`Head commit: <sha> (records only after the work commit)`). None when there is no single such line, or when
+    its value does not start with a full SHA.
+    """
+    value = parse_verdict_field(text, "Head commit")
+    match = _LEADING_SHA.match(value) if value is not None else None
+    return match.group(1) if match else None
+
+
+def parse_verdict_contract(text: str) -> str | None:
+    """Return the contract path on the verdict's single `Contract:` line, normalised; None when there is none.
+
+    Backticks around the path are dropped and `./` and `..` segments are resolved lexically, so the value
+    compares equal to the task's stored contract path.
+    """
+    value = parse_verdict_field(text, "Contract")
+    if not value:
+        return None
+    path = value.strip("`").strip()
+    return posixpath.normpath(path) if path else None
 
 
 def parse_progress_times(text: str) -> list[datetime]:
@@ -227,11 +269,16 @@ def gather_evidence(root: Path, item: Mapping[str, Any] | None, flags: argparse.
     verdict_path: str | None = flags.verdict
     verdict_exists = False
     verdict_overall: str | None = None
+    verdict_head: str | None = None
+    verdict_contract: str | None = None
     if verdict_path is not None:
         verdict_file = root / verdict_path
         verdict_exists = verdict_file.exists()
         if verdict_exists:
-            verdict_overall = parse_verdict_overall(_read_text(root, verdict_file))
+            verdict_text = _read_text(root, verdict_file)
+            verdict_overall = parse_verdict_overall(verdict_text)
+            verdict_head = parse_verdict_head(verdict_text)
+            verdict_contract = parse_verdict_contract(verdict_text)
 
     return machine.Evidence(
         contract_exists=contract_exists,
@@ -241,6 +288,8 @@ def gather_evidence(root: Path, item: Mapping[str, Any] | None, flags: argparse.
         verdict_path=verdict_path,
         verdict_exists=verdict_exists,
         verdict_overall=verdict_overall,
+        verdict_head=verdict_head,
+        verdict_contract=verdict_contract,
         pr=flags.pr,
         head=flags.head,
         reason=flags.reason,
@@ -362,6 +411,7 @@ def format_show(item: Mapping[str, Any]) -> str:
         ("pr", f"#{item['pr']}" if item["pr"] is not None else "-"),
         ("review cycles", f"{item['review_cycles']} of {machine.REVIEW_CYCLE_LIMIT}"),
         ("verdicts", ", ".join(item["verdicts"]) or "-"),
+        ("reviewed head", item.get("reviewed_head") or "-"),
         ("merge approved", merge),
     ]
     escalation = item["escalation"]

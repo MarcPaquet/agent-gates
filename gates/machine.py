@@ -71,6 +71,11 @@ ESCALATION_FIELDS: tuple[str, ...] = ("reason", "tried", "options", "recommends"
 
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
+RECORD_FILE = "gates.json"
+RECORD_FOLDERS: tuple[str, ...] = ("progress", "reviews")
+"""The workflow's own records: the store, and the Markdown files directly inside these folders. Commits that change
+only records may follow a reviewed head on a pull request without voiding its review."""
+
 REFUSALS: dict[str, str] = {
     # Check order of a transition: unknown task, unknown state, terminal state, no such transition, actor.
     "unknown_task": (
@@ -141,8 +146,16 @@ REFUSALS: dict[str, str] = {
         "but moving to {to_state} needs `Overall: {expected}`."
     ),
     "verdict_reused": (
-        "{task}: the verdict file {path} was already recorded for an earlier review. "
+        "{task}: the verdict file {path} was already recorded for a review of {owner}. "
         "Each review writes a new verdict file."
+    ),
+    "verdict_head_missing": (
+        "{task}: the verdict file {path} has no single `Head commit:` line giving the full 40-character SHA "
+        "of the commit reviewed. Write exactly one."
+    ),
+    "verdict_contract_mismatch": (
+        "{task}: the verdict file {path} names the contract {found}, but the task's contract is {contract}. "
+        "Write one `Contract:` line with {contract}."
     ),
     "pr_missing": (
         "{task}: moving to pr_open needs the pull request number. Pass --pr N with a positive integer."
@@ -164,6 +177,19 @@ REFUSALS: dict[str, str] = {
     "merge_no_pr": (
         "{task} has no pull request number recorded, so there is nothing to approve for merge."
     ),
+    "merge_no_reviewed_head": (
+        "{task} has no reviewed head recorded, so no review covers its pull request. "
+        "The planner moves the task back to in_review with --head, and the reviewer reviews that head."
+    ),
+    "merge_head_not_reviewed": (
+        "{task}: pull request #{pr} is at {head}, which does not contain the reviewed head {reviewed}. "
+        "The planner moves the task back to in_review with --head {head}, and the reviewer reviews that head."
+    ),
+    "merge_unreviewed_changes": (
+        "{task}: since the reviewed head {reviewed}, pull request #{pr} changed files that are not records: "
+        "{paths}. The planner moves the task back to in_review with --head {head}, and the reviewer reviews "
+        "that head."
+    ),
     # Refusals raised outside this module, kept here so every message lives in one table.
     "human_actor_in_cli": (
         "--actor human is refused: an agent cannot act as the human. "
@@ -182,6 +208,9 @@ REFUSALS: dict[str, str] = {
     ),
     "pr_head_invalid": (
         "gh returned '{value}' as the head of pull request #{pr}, which is not a 40-character commit SHA."
+    ),
+    "compare_unavailable": (
+        "could not compare the reviewed head {reviewed} with head {head} of pull request #{pr} with gh: {detail}"
     ),
     "merge_state_changed": (
         "{task} changed while its pull request head was being read "
@@ -242,6 +271,10 @@ class Evidence:
     verdict_exists: bool = False
     verdict_overall: str | None = None
     """Either "PASS" or "FAIL", or None when the verdict has no single Overall line."""
+    verdict_head: str | None = None
+    """The commit the verdict reviewed, from its single `Head commit:` line; None when there is no such line."""
+    verdict_contract: str | None = None
+    """The contract path the verdict names on its single `Contract:` line; None when there is no such line."""
     pr: int | None = None
     head: str | None = None
     reason: str = ""
@@ -265,6 +298,18 @@ def allowed_actors(from_state: str, to_state: str) -> tuple[str, ...]:
 def is_commit_sha(value: object) -> bool:
     """Return True when `value` is a full commit SHA: exactly 40 lowercase hexadecimal characters."""
     return isinstance(value, str) and _COMMIT_SHA.fullmatch(value) is not None
+
+
+def is_record_path(path: str) -> bool:
+    """Return True when `path`, relative to the project root, is one of the workflow's records.
+
+    Records are `gates.json` and the Markdown files directly inside `progress/` and `reviews/`. Any other path,
+    including a file in a folder below those or a file of another type, is not a record.
+    """
+    parts = path.split("/")
+    if parts == [RECORD_FILE]:
+        return True
+    return len(parts) == 2 and parts[0] in RECORD_FOLDERS and parts[1].endswith(".md") and parts[1] != ".md"
 
 
 def globs_overlap(a: str, b: str) -> bool:
@@ -376,12 +421,16 @@ def apply_transition(
         item["verdicts"].append(evidence.verdict_path)
         item["review_cycles"] += 1
         event["verdict"] = evidence.verdict_path
+        event["head"] = evidence.verdict_head
     elif to_state == "pr_open":
         item["verdicts"].append(evidence.verdict_path)
         item["pr"] = evidence.pr
+        item["reviewed_head"] = evidence.verdict_head
         event["verdict"] = evidence.verdict_path
         event["pr"] = evidence.pr
+        event["head"] = evidence.verdict_head
     elif to_state == "in_review" and from_state == "pr_open":
+        item["reviewed_head"] = None
         item["merge_approved_head"] = None
         item["merge_approved_at"] = None
         event["head"] = evidence.head
@@ -403,8 +452,15 @@ def apply_transition(
     return new_store
 
 
-def check_merge_approval(store: Mapping, item_id: str, *, head: str) -> None:
-    """Raise `Refusal` unless the task's pull request may be approved for merge at commit `head`."""
+def check_merge_approval(
+    store: Mapping, item_id: str, *, head: str, changed_since_review: tuple[str, ...] | None
+) -> None:
+    """Raise `Refusal` unless the task's pull request may be approved for merge at commit `head`.
+
+    `changed_since_review` is what the caller read about `head` against the task's `reviewed_head`: the paths
+    changed between them (empty when `head` is the reviewed head), or None when `head` does not contain the
+    reviewed head. The go is refused unless every changed path is a record (`is_record_path`).
+    """
     items = store["items"]
     if item_id not in items:
         raise Refusal("unknown_task", task=item_id)
@@ -415,14 +471,31 @@ def check_merge_approval(store: Mapping, item_id: str, *, head: str) -> None:
         raise Refusal("merge_no_pr", task=item_id)
     if not is_commit_sha(head):
         raise Refusal("head_invalid", task=item_id, head=head)
+    reviewed = item.get("reviewed_head")
+    if not is_commit_sha(reviewed):
+        raise Refusal("merge_no_reviewed_head", task=item_id)
+    if changed_since_review is None:
+        raise Refusal("merge_head_not_reviewed", task=item_id, pr=item["pr"], head=head, reviewed=reviewed)
+    unreviewed = sorted({path for path in changed_since_review if not is_record_path(path)})
+    if unreviewed:
+        raise Refusal(
+            "merge_unreviewed_changes",
+            task=item_id,
+            pr=item["pr"],
+            head=head,
+            reviewed=reviewed,
+            paths=", ".join(unreviewed),
+        )
 
 
-def record_merge_approval(store: Mapping, item_id: str, *, head: str, at: str) -> dict:
+def record_merge_approval(
+    store: Mapping, item_id: str, *, head: str, changed_since_review: tuple[str, ...] | None, at: str
+) -> dict:
     """Check the merge approval, then return a new store recording it. The task stays in pr_open.
 
     The input store is not changed. Any later move back to in_review (a new push) clears the approval.
     """
-    check_merge_approval(store, item_id, head=head)
+    check_merge_approval(store, item_id, head=head, changed_since_review=changed_since_review)
     new_store = copy.deepcopy(dict(store))
     item = new_store["items"][item_id]
     item["merge_approved_head"] = head
@@ -452,9 +525,9 @@ def _check_guards(store: Mapping, item_id: str, from_state: str, to_state: str, 
     elif from_state == "in_progress" and to_state == "in_review":
         _check_submission(item, evidence)
     elif from_state == "in_review" and to_state == "changes_requested":
-        _check_verdict(item, to_state, evidence, expected="FAIL")
+        _check_verdict(store, item, to_state, evidence, expected="FAIL")
     elif from_state == "in_review" and to_state == "pr_open":
-        _check_verdict(item, to_state, evidence, expected="PASS")
+        _check_verdict(store, item, to_state, evidence, expected="PASS")
         if not _is_pr_number(evidence.pr):
             raise Refusal("pr_missing", task=item_id)
     elif from_state == "pr_open" and to_state == "in_review":
@@ -488,8 +561,9 @@ def _check_submission(item: Mapping, evidence: Evidence) -> None:
         raise Refusal("no_progress_note", task=item["id"], dispatched_at=item["dispatched_at"])
 
 
-def _check_verdict(item: Mapping, to_state: str, evidence: Evidence, *, expected: str) -> None:
-    """Guards of a review: a verdict path, an existing file, the expected Overall line, a path not used before."""
+def _check_verdict(store: Mapping, item: Mapping, to_state: str, evidence: Evidence, *, expected: str) -> None:
+    """Guards of a review: a verdict path, an existing file, the expected Overall line, a path no task recorded
+    before, a reviewed head, and the task's own contract."""
     path = evidence.verdict_path
     if not path:
         raise Refusal("verdict_path_missing", task=item["id"], to_state=to_state)
@@ -506,8 +580,19 @@ def _check_verdict(item: Mapping, to_state: str, evidence: Evidence, *, expected
             expected=expected,
             to_state=to_state,
         )
-    if path in item["verdicts"]:
-        raise Refusal("verdict_reused", task=item["id"], path=path)
+    owner = next((other_id for other_id, other in store["items"].items() if path in other["verdicts"]), None)
+    if owner is not None:
+        raise Refusal("verdict_reused", task=item["id"], path=path, owner=owner)
+    if not is_commit_sha(evidence.verdict_head):
+        raise Refusal("verdict_head_missing", task=item["id"], path=path)
+    if evidence.verdict_contract != item["contract"]:
+        raise Refusal(
+            "verdict_contract_mismatch",
+            task=item["id"],
+            path=path,
+            found=evidence.verdict_contract or "none",
+            contract=item["contract"],
+        )
 
 
 def _is_pr_number(value: object) -> bool:
