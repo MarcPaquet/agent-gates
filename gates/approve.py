@@ -215,8 +215,9 @@ def approve_merge(
     pr_open and back on the same pull request.
 
     Once the go is in the store, the commit status `MERGE_STATUS_CONTEXT` is posted on the head, for a branch
-    protection rule that requires it. The status is posted last, so it never exists without a recorded go; when
-    posting fails, the go stays recorded and the command is refused, and running it again posts the status.
+    protection rule that requires it. The status is posted only after the go is recorded; when posting fails, the
+    go stays recorded and the command is refused, and running it again posts the status. A status stays on its
+    commit after the go is cleared.
     """
     item = _merge_candidate(store.load(store_path), item_id)
     pr = item["pr"]

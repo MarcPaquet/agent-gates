@@ -120,9 +120,10 @@ Each step, and what each verdict found, is in
   posts the commit status `agent-gates/merge-go` on the head it approves, and a branch protection rule that
   requires that status makes GitHub refuse a merge of any other head, in the web interface too. The rule is a
   repository setting, not part of the code ([setup](docs/reference.md#branch-protection)); T-001 was merged in
-  the web interface without a go, before the status existed. Anyone with write access can post a commit
-  status, an agent holding the GitHub token included (the guard denies that command), and an admin can bypass
-  the rule in the web interface.
+  the web interface without a go, before the status existed. The rule checks a name, not who set it: anyone
+  with write access can post that status, and a CI job given that name satisfies it too. An admin bypasses the
+  rule from any client, and an agent's GitHub token is often an admin's; for agents, the guard is what denies
+  posting the status and merging as an admin.
 - Changes to records after a passing review (the store, a progress log, a verdict) do not void it, and no one
   reviews them. The merge go reads the comparison with the reviewed head from GitHub, through `gh`.
 - A process that writes the store without the library bypasses the lock.

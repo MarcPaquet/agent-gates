@@ -360,7 +360,16 @@ class MergeTest(ApproveTestCase):
         self.assertIn("HTTP 403", err)
         self.assertIn("Run the merge go again", err)
         self.assertEqual(self.item()["merge_approved_head"], HEAD)
-        self.assert_ok("T-001", "--merge")
+        rerun = FakeGh()
+        self.assert_ok("T-001", "--merge", runner=rerun)
+        self.assertEqual(rerun.calls[-1][4], f"repos/{{owner}}/{{repo}}/statuses/{HEAD}")
+
+    def test_the_status_goes_on_the_approved_head_not_the_reviewed_head(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "gates.json"))
+        self.assert_ok("T-001", "--merge", runner=gh)
+        status_calls = [command for command in gh.calls if any("/statuses/" in word for word in command)]
+        self.assertEqual([command[4] for command in status_calls], [f"repos/{{owner}}/{{repo}}/statuses/{HEAD}"])
 
     def test_the_merge_comment_is_added_to_the_history_reason(self) -> None:
         self.pr_open_task()

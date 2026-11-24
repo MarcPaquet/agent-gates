@@ -49,10 +49,10 @@ it.
 
 ### Branch protection
 
-The guard binds only merges an agent runs. To make GitHub hold every merge to the go, add a branch protection
-rule on the default branch that requires the status `agent-gates/merge-go`. A commit status belongs to one
-commit, so a head pushed after the go has none, and GitHub refuses to merge it, in the web interface too. With
-the GitHub CLI, as a repository admin, with `protection.json` holding
+The guard binds only merges an agent runs. To make GitHub hold a merge in the web interface to the go, add a
+branch protection rule on the default branch that requires the status `agent-gates/merge-go`. A commit status
+belongs to one commit, so a head pushed after the go has none, and GitHub refuses to merge it, in the web
+interface too. With the GitHub CLI, as a repository admin, with `protection.json` holding
 `{"required_status_checks": {"strict": false, "contexts": ["agent-gates/merge-go"]}, "enforce_admins": false,
 "required_pull_request_reviews": null, "restrictions": null}`:
 
@@ -60,11 +60,24 @@ the GitHub CLI, as a repository admin, with `protection.json` holding
 gh api --method PUT repos/OWNER/REPO/branches/main/protection --input protection.json
 ```
 
-With `enforce_admins` false, a pull request that carries no task (a documentation change, the follow-up that
-brings the store's records to `main`) has no status and is merged by an admin through the web interface's bypass,
-a deliberate step rather than a plain merge button. What the rule does not stop: anyone with write access can post
-a commit status, an agent holding the GitHub token included. The adapter's guard denies that command, and asks
-on any other `gh api` call that is not a GET.
+This call replaces the branch's whole protection rule; merge the setting into any rule already there. With
+`enforce_admins` false, a pull request that carries no task (a documentation change, the follow-up that brings the
+store's records to `main`) has no status and is merged by an admin through the bypass, a deliberate step rather
+than a plain merge button. With `strict` false, GitHub does not require the branch to be up to date with `main`, so
+the merged result can hold changes on `main` the review did not see.
+
+What the rule does not stop:
+
+- **It checks a name, not who set it.** Anyone with write access can post a commit status named
+  `agent-gates/merge-go`, an agent holding the GitHub token included, and a CI job or check run given that name
+  satisfies the rule too. The adapter's guard denies posting the status or a check run with that name through
+  `gh api`, `curl` or `wget`, and asks on any other `gh api` call that is not a GET; it does not read workflow
+  files, where a job could take the name.
+- **An admin bypasses it from any client**: the web interface, `gh pr merge --admin`, the merge API, a push to
+  `main`. An agent's `gh` often holds an admin's token, so for agents the guard's denies (`gh pr merge` without
+  the go, `--admin`, the merge endpoints, a push to `main`) are what stop those routes, not GitHub.
+- **A status stays on its commit.** It is posted only after the go is recorded, and it is not removed when the go
+  is cleared; a push gives the pull request a new head without it.
 
 ## The state machine
 
