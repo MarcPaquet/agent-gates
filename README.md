@@ -116,9 +116,13 @@ Each step, and what each verdict found, is in
 - Roles are self-declared: an agent passes `--actor`. They are separated by the harness's permission tiers and
   hooks, not by the library.
 - Only the human is identity-checked, by an interactive terminal and an agent environment variable.
-- The merge gate depends on the harness honouring hooks, and it binds only merges an agent runs. A merge in the
-  GitHub web interface goes around the merge go, as T-001 shows; T-002 shows the go used. GitHub branch
-  protection, or a required check that reads the store, could close that gap; neither is part of the kit.
+- The merge gate depends on the harness honouring hooks for merges an agent runs. For any other merge, the go
+  posts the commit status `agent-gates/merge-go` on the head it approves, and a branch protection rule that
+  requires that status makes GitHub refuse a merge of any other head, in the web interface too. The rule is a
+  repository setting, not part of the code ([setup](docs/reference.md#branch-protection)); T-001 was merged in
+  the web interface without a go, before the status existed. Anyone with write access can post a commit
+  status, an agent holding the GitHub token included (the guard denies that command), and an admin can bypass
+  the rule in the web interface.
 - Changes to records after a passing review (the store, a progress log, a verdict) do not void it, and no one
   reviews them. The merge go reads the comparison with the reviewed head from GitHub, through `gh`.
 - A process that writes the store without the library bypasses the lock.
