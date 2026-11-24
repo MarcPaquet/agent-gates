@@ -34,7 +34,7 @@ Every form takes `--comment TEXT`, recorded in the history.
 **The merge go.** `approve.py T-001 --merge` is refused unless the task is in `pr_open` with a pull request number
 and a reviewed head recorded. It reads the pull request's head with `gh pr view N --json headRefOid`. When that
 head is not the reviewed head, it asks GitHub for the comparison of the two (`gh api
-repos/{owner}/{repo}/compare/<reviewed>...<head>`) and refuses unless the head follows the reviewed head and
+repos/{owner}/{repo}/compare/<reviewed>...<head>`, each path read as a JSON string) and refuses unless the head follows the reviewed head and
 every file changed since, a renamed file under both names, is a record: `gates.json`, or a Markdown file directly
 in `progress/` or `reviews/`. Those are the commits that carry the verdict and the store moves after the review.
 It then records the head as `merge_approved_head`, provided the task did not change while `gh` ran. It prints the one merge command an agent
@@ -186,7 +186,8 @@ Three walls keep an agent from running `gates/approve.py` as the human. They are
 3. **The terminal check.** The command refuses to run when its standard input is not an interactive terminal, as
    it is not for a command an agent runs through a tool call.
 
-What walls 2 and 3 do not prove: a process that clears the variable and allocates a pseudo-terminal passes both.
+What walls 2 and 3 do not prove: a process that clears the variable and allocates a pseudo-terminal passes both,
+and so does Python code that imports `gates/approve.py` and calls its `main` with its own environment and input.
 Wall 1 is what stops that, and the human's review of what an agent ran is the last.
 
 The same guard hook also denies writing the store, a progress log or a recorded verdict by hand; a push to `main`, and a
@@ -245,8 +246,9 @@ worker ran as Sonnet at low effort, each reviewer as Opus at high effort.
    running `approve.py T-001 --merge` first, so `merge_approved_head` stayed empty. The human then closed the
    task with `approve.py T-001 done` and a comment saying so; the last line of `history T-001` records it.
 7. The store records written after pull request #11 opened (`pr_open` and `done`) reached `main` through a second
-   pull request, #12. They could not ride on #11: by the planner's rule, a push to an open pull request sends
-   the task back to review with the new head (`pr_open -> in_review`), which also voids the merge go.
+   pull request, #12. They did not ride on #11: by the planner's rule when T-001 ran, any push to an open pull
+   request sent the task back to review with the new head (`pr_open -> in_review`), which also voids the merge
+   go. A push of records only now keeps the review, and still voids a merge go given before it.
 
 ## Layout
 

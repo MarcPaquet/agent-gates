@@ -11,8 +11,9 @@ Usage, from the repository root (`--store PATH` comes before the task id):
 Every transition the human may make is recorded with actor `human`; the state machine in `gates/machine.py`
 refuses any other move. A merge go records the pull request's head commit, read with `gh`. It is refused unless
 that head is the one the passing review named, or follows it with changes to records only (`gates.json`,
-`progress/*.md`, `reviews/*.md`). A later push to the pull request moves the task back to in_review and clears the
-go, so the new head is reviewed and approved again.
+`progress/*.md`, `reviews/*.md`). A push after the go leaves the go on the older head, so it voids the go: a push
+that changes anything but records sends the task back to in_review (the planner's move, which clears the go and
+the reviewed head), and a records-only push needs a new go at the new head.
 
 Three walls keep an agent from running this command as the human:
 
@@ -24,7 +25,8 @@ Three walls keep an agent from running this command as the human:
    is not for a command an agent runs through a tool call.
 
 What walls 2 and 3 do not prove: a process that clears the variable and allocates a pseudo-terminal passes
-both. Wall 1 is what stops that, and the human's review of what an agent ran is the last.
+both, and so does Python code that imports this module and calls `main` with its own environment and input.
+Wall 1 is what stops that, and the human's review of what an agent ran is the last.
 
 Exit status: 0 on success, 1 when the request is refused (`refused: <message>` on standard error), 2 on a usage
 error.
@@ -33,6 +35,7 @@ error.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -96,6 +99,10 @@ def pr_head_sha(pr: int, *, runner: Runner = subprocess.run, env: Mapping[str, s
     return value
 
 
+COMPARE_FILTER = ".status, (.files[] | .filename, (.previous_filename // empty)) | tojson"
+"""The jq filter run on GitHub's comparison: the status, then each changed path (a renamed file's old path too),
+one JSON string per line, so a path holding a newline or edge spaces is read exactly as it is."""
+
 COMPARE_FILE_LIMIT = 300
 """GitHub's compare endpoint lists at most this many files; a comparison that reaches it is refused as unreadable."""
 
@@ -116,7 +123,7 @@ def changes_since_review(
     """
     command = [
         "gh", "api", f"repos/{{owner}}/{{repo}}/compare/{reviewed}...{head}",
-        "--jq", ".status, (.files[] | .filename, (.previous_filename // empty))",
+        "--jq", COMPARE_FILTER,
     ]
     process_env = dict(env) if env is not None else None
     fields = {"reviewed": reviewed, "head": head, "pr": pr}
@@ -127,8 +134,14 @@ def changes_since_review(
     if result.returncode != 0:
         detail = (result.stderr or "").strip() or f"gh exited with status {result.returncode}"
         raise machine.Refusal("compare_unavailable", **fields, detail=detail)
-    lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-    status, paths = (lines[0], tuple(lines[1:])) if lines else ("", ())
+    try:
+        values = [json.loads(line) for line in (result.stdout or "").split("\n") if line]
+    except json.JSONDecodeError as error:
+        detail = f"gh answered in another form ({error})"
+        raise machine.Refusal("compare_unavailable", **fields, detail=detail) from None
+    if not values or not all(isinstance(value, str) for value in values):
+        raise machine.Refusal("compare_unavailable", **fields, detail="gh answered in another form")
+    status, paths = values[0], tuple(values[1:])
     if status in ("behind", "diverged"):
         return None
     if status not in ("identical", "ahead"):
@@ -190,8 +203,8 @@ def approve_merge(
             f"{item_id}: merge approved for pull request #{pr} at head {head[:SHORT_HEAD_LENGTH]} (human, {at})",
             f"An agent may now run: gh pr merge {pr} --squash --match-head-commit {head}",
             "gh refuses this merge if the pull request head has moved since the go.",
-            "A push to the pull request after this voids the go: the planner moves the task back to in_review "
-            "with the new head, and the human approves again.",
+            "A push to the pull request after this voids the go: a code change goes back to review, "
+            "and a push of records only needs a new go at the new head.",
         ]
     )
 

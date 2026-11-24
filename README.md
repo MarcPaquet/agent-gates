@@ -122,9 +122,8 @@ Each step, and what each verdict found, is in
 - Changes to records after a passing review (the store, a progress log, a verdict) do not void it, and no one
   reviews them. The merge go reads the comparison with the reviewed head from GitHub, through `gh`.
 - A process that writes the store without the library bypasses the lock.
-- The store lives in the repository, so every task needs a follow-up pull request: the records written after a
-  pull request opens (`pr_open`, the merge go, `done`) cannot be pushed to that pull request without sending the
-  task back to review.
+- The store lives in the repository, so every task needs a follow-up pull request: the merge go and `done` are
+  written after the go, and a push to the pull request after the go leaves the go on an older head.
 
 ## Reference
 

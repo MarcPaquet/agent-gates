@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,11 @@ HEAD = "0123456789abcdef0123456789abcdef01234567"
 NEW_HEAD = "fedcba9876543210fedcba9876543210fedcba98"
 REVIEWED_HEAD = "00112233445566778899aabbccddeeff00112233"
 HUMAN_ENVIRON: dict[str, str] = {}
+
+
+def compare_answer(status: str, *paths: str) -> str:
+    """Return what `gh api .../compare --jq COMPARE_FILTER` prints: the status, then each path, one JSON string each."""
+    return "".join(json.dumps(value) + "\n" for value in (status, *paths))
 
 
 class FakeStdin:
@@ -42,7 +48,7 @@ class FakeGh:
         stdout: str = HEAD + "\n",
         returncode: int = 0,
         stderr: str = "",
-        compare_stdout: str = "identical\n",
+        compare_stdout: str = '"identical"\n',
         compare_returncode: int = 0,
         compare_stderr: str = "",
     ) -> None:
@@ -320,12 +326,29 @@ class MergeTest(ApproveTestCase):
 
     def test_the_merge_go_is_allowed_when_only_records_follow_the_reviewed_head(self) -> None:
         self.pr_open_task(reviewed_head=REVIEWED_HEAD)
-        gh = FakeGh(compare_stdout="ahead\ngates.json\nreviews/T-001-verdict-c2.md\n")
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "gates.json", "reviews/T-001-verdict-c2.md"))
         self.assert_ok("T-001", "--merge", runner=gh)
         self.assertEqual(self.item()["merge_approved_head"], HEAD)
+
+    def test_the_comparison_lists_every_path_and_a_renamed_files_old_path_as_json(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "gates.json"))
+        self.assert_ok("T-001", "--merge", runner=gh)
         self.assertEqual(
-            gh.calls[1][:3], ["gh", "api", f"repos/{{owner}}/{{repo}}/compare/{REVIEWED_HEAD}...{HEAD}"]
+            gh.calls[1],
+            [
+                "gh", "api", f"repos/{{owner}}/{{repo}}/compare/{REVIEWED_HEAD}...{HEAD}",
+                "--jq", ".status, (.files[] | .filename, (.previous_filename // empty)) | tojson",
+            ],
         )
+
+    def test_a_path_with_a_newline_or_edge_spaces_is_read_whole_and_is_not_a_record(self) -> None:
+        for path in ("reviews/a.md\nreviews/b.md", " gates.json", "reviews/x.md "):
+            with self.subTest(path=path):
+                self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+                gh = FakeGh(compare_stdout=compare_answer("ahead", path))
+                self.assert_refused("files that are not records", "T-001", "--merge", runner=gh)
+                self.assertIsNone(self.item()["merge_approved_head"])
 
     def test_merge_is_refused_without_a_reviewed_head_before_gh_runs(self) -> None:
         self.pr_open_task(reviewed_head=None)
@@ -335,28 +358,31 @@ class MergeTest(ApproveTestCase):
 
     def test_merge_is_refused_when_files_other_than_records_follow_the_reviewed_head(self) -> None:
         self.pr_open_task(reviewed_head=REVIEWED_HEAD)
-        gh = FakeGh(compare_stdout="ahead\ngates.json\nexample/linkcheck/linkcheck.py\n")
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "gates.json", "example/linkcheck/linkcheck.py"))
         self.assert_refused("files that are not records: example/linkcheck/linkcheck.py", "T-001", "--merge",
                             runner=gh)
         self.assertIsNone(self.item()["merge_approved_head"])
 
     def test_a_renamed_file_counts_under_its_old_path(self) -> None:
         self.pr_open_task(reviewed_head=REVIEWED_HEAD)
-        gh = FakeGh(compare_stdout="ahead\nreviews/notes.md\nexample/linkcheck/linkcheck.py\n")
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "reviews/notes.md", "example/linkcheck/linkcheck.py"))
         self.assert_refused("example/linkcheck/linkcheck.py", "T-001", "--merge", runner=gh)
 
     def test_merge_is_refused_when_the_head_does_not_contain_the_reviewed_head(self) -> None:
         for status in ("behind", "diverged"):
             with self.subTest(status=status):
                 self.pr_open_task(reviewed_head=REVIEWED_HEAD)
-                gh = FakeGh(compare_stdout=f"{status}\ngates.json\n")
+                gh = FakeGh(compare_stdout=compare_answer(status, "gates.json"))
                 self.assert_refused("which does not contain the reviewed head", "T-001", "--merge", runner=gh)
 
     def test_merge_is_refused_when_the_comparison_cannot_be_read(self) -> None:
         answers = (
             FakeGh(compare_stdout="", compare_returncode=1, compare_stderr="HTTP 404: Not Found"),
             FakeGh(compare_stdout="\n"),
-            FakeGh(compare_stdout="ahead\n" + "reviews/x.md\n" * approve.COMPARE_FILE_LIMIT),
+            FakeGh(compare_stdout="ahead\ngates.json\n"),
+            FakeGh(compare_stdout=compare_answer("ahead") + "7\n"),
+            FakeGh(compare_stdout=compare_answer("merged")),
+            FakeGh(compare_stdout=compare_answer("ahead", *["reviews/x.md"] * approve.COMPARE_FILE_LIMIT)),
         )
         for gh in answers:
             with self.subTest(stdout=gh.compare_stdout[:20]):
