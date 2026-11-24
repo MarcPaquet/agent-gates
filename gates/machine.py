@@ -212,6 +212,10 @@ REFUSALS: dict[str, str] = {
     "compare_unavailable": (
         "could not compare the reviewed head {reviewed} with head {head} of pull request #{pr} with gh: {detail}"
     ),
+    "merge_status_unavailable": (
+        "the merge go is recorded, but the commit status for head {head} of pull request #{pr} could not be "
+        "posted with gh: {detail}. Run the merge go again."
+    ),
     "merge_state_changed": (
         "{task} changed while its pull request head was being read "
         "(it is no longer as it was when the approval began). "

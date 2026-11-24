@@ -11,9 +11,11 @@ Usage, from the repository root (`--store PATH` comes before the task id):
 Every transition the human may make is recorded with actor `human`; the state machine in `gates/machine.py`
 refuses any other move. A merge go records the pull request's head commit, read with `gh`. It is refused unless
 that head is the one the passing review named, or follows it with changes to records only (`gates.json`,
-`progress/*.md`, `reviews/*.md`). A push after the go leaves the go on the older head, so it voids the go: a push
-that changes anything but records sends the task back to in_review (the planner's move, which clears the go and
-the reviewed head), and a records-only push needs a new go at the new head.
+`progress/*.md`, `reviews/*.md`). Once recorded, the go posts the commit status `agent-gates/merge-go` on that
+head, for a branch protection rule that requires it (docs/reference.md, Branch protection). A push after the go
+leaves the go on the older head, so it voids the go: a push that changes anything but records sends the task back
+to in_review (the planner's move, which clears the go and the reviewed head), and a records-only push needs a new
+go at the new head.
 
 Three walls keep an agent from running this command as the human:
 
@@ -99,7 +101,37 @@ def pr_head_sha(pr: int, *, runner: Runner = subprocess.run, env: Mapping[str, s
     return value
 
 
-COMPARE_FILTER = ".status, (.files[] | .filename, (.previous_filename // empty)) | tojson"
+MERGE_STATUS_CONTEXT = "agent-gates/merge-go"
+"""The commit status the merge go posts on the approved head. A branch protection rule on the default branch that
+requires this context makes GitHub refuse a merge of any other head, including a merge in the web interface."""
+
+
+def post_merge_status(
+    head: str, pr: int, *, runner: Runner = subprocess.run, env: Mapping[str, str] | None = None
+) -> None:
+    """Post the commit status MERGE_STATUS_CONTEXT, state success, on `head` in the current repository.
+
+    Runs `gh api repos/{owner}/{repo}/statuses/<head>` with method POST. Refuses with `merge_status_unavailable`
+    when `gh` cannot be run or fails.
+    """
+    command = [
+        "gh", "api", "--method", "POST", f"repos/{{owner}}/{{repo}}/statuses/{head}",
+        "-f", "state=success",
+        "-f", f"context={MERGE_STATUS_CONTEXT}",
+        "-f", f"description=The human's merge go for pull request #{pr}",
+    ]
+    process_env = dict(env) if env is not None else None
+    try:
+        result = runner(command, capture_output=True, text=True, check=False, env=process_env)
+    except (OSError, UnicodeDecodeError) as error:
+        detail = f"gh could not be run ({error})"
+        raise machine.Refusal("merge_status_unavailable", pr=pr, head=head, detail=detail) from error
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or f"gh exited with status {result.returncode}"
+        raise machine.Refusal("merge_status_unavailable", pr=pr, head=head, detail=detail)
+
+
+COMPARE_FILTER =".status, (.files[] | .filename, (.previous_filename // empty)) | tojson"
 """The jq filter run on GitHub's comparison: the status, then each changed path (a renamed file's old path too),
 one JSON string per line, so a path holding a newline or edge spaces is read exactly as it is."""
 
@@ -181,6 +213,11 @@ def approve_merge(
     store lock is taken, because they are network calls. Under the lock the task is read again; unless it is
     equal to the task read before the `gh` calls, the go is refused. Any change counts, including a move out of
     pr_open and back on the same pull request.
+
+    Once the go is in the store, the commit status `MERGE_STATUS_CONTEXT` is posted on the head, for a branch
+    protection rule that requires it. The status is posted only after the go is recorded; when posting fails, the
+    go stays recorded and the command is refused, and running it again posts the status. A status stays on its
+    commit after the go is cleared.
     """
     item = _merge_candidate(store.load(store_path), item_id)
     pr = item["pr"]
@@ -198,9 +235,11 @@ def approve_merge(
             event["reason"] = f"{event['reason']}: {comment.strip()}"
         data.clear()
         data.update(updated)
+    post_merge_status(head, pr, runner=runner, env=env)
     return "\n".join(
         [
             f"{item_id}: merge approved for pull request #{pr} at head {head[:SHORT_HEAD_LENGTH]} (human, {at})",
+            f"Commit status {MERGE_STATUS_CONTEXT} set to success on {head[:SHORT_HEAD_LENGTH]}.",
             f"An agent may now run: gh pr merge {pr} --squash --match-head-commit {head}",
             "gh refuses this merge if the pull request head has moved since the go.",
             "A push to the pull request after this voids the go: a code change goes back to review, "

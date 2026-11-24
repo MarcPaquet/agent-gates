@@ -34,14 +34,50 @@ Every form takes `--comment TEXT`, recorded in the history.
 **The merge go.** `approve.py T-001 --merge` is refused unless the task is in `pr_open` with a pull request number
 and a reviewed head recorded. It reads the pull request's head with `gh pr view N --json headRefOid`. When that
 head is not the reviewed head, it asks GitHub for the comparison of the two (`gh api
-repos/{owner}/{repo}/compare/<reviewed>...<head>`, each path read as a JSON string) and refuses unless the head follows the reviewed head and
-every file changed since, a renamed file under both names, is a record: `gates.json`, or a Markdown file directly
-in `progress/` or `reviews/`. Those are the commits that carry the verdict and the store moves after the review.
-It then records the head as `merge_approved_head`, provided the task did not change while `gh` ran. It prints the one merge command an agent
-may then run, `gh pr merge N --squash --match-head-commit <SHA>`. The adapter's guard denies any `gh pr merge`
-without `--match-head-commit <SHA>` (the method flags `--squash`, `--merge` and `--rebase`, and `--delete-branch`
-and `--auto`, are allowed beside it), and denies it unless a task in `pr_open` has that pull request and that head
-approved. The go is not a transition: the task stays in `pr_open`. A move back to `in_review` after a push clears it.
+repos/{owner}/{repo}/compare/<reviewed>...<head>`, each path read as a JSON string) and refuses unless the head
+follows the reviewed head and every file changed since, a renamed file under both names, is a record:
+`gates.json`, or a Markdown file directly in `progress/` or `reviews/`. Those are the commits that carry the
+verdict and the store moves after the review. It then records the head as `merge_approved_head`, provided the
+task did not change while `gh` ran, and posts the commit status `agent-gates/merge-go`, state success, on that
+head (`gh api --method POST repos/{owner}/{repo}/statuses/<head>`). If the post fails, the go stays recorded and
+the command is refused; running it again posts the status. It prints the one merge command an agent may then
+run, `gh pr merge N --squash --match-head-commit <SHA>`. The adapter's guard denies any `gh pr merge` without
+`--match-head-commit <SHA>` (the method flags `--squash`, `--merge` and `--rebase`, and `--delete-branch` and
+`--auto`, are allowed beside it), and denies it unless a task in `pr_open` has that pull request and that head
+approved. The go is not a transition: the task stays in `pr_open`. A move back to `in_review` after a push clears
+it.
+
+### Branch protection
+
+The guard binds only merges an agent runs. To make GitHub hold a merge in the web interface to the go, add a
+branch protection rule on the default branch that requires the status `agent-gates/merge-go`. A commit status
+belongs to one commit, so a head pushed after the go has none, and GitHub refuses to merge it, in the web
+interface too. With the GitHub CLI, as a repository admin, with `protection.json` holding
+`{"required_status_checks": {"strict": false, "contexts": ["agent-gates/merge-go"]}, "enforce_admins": false,
+"required_pull_request_reviews": null, "restrictions": null}`:
+
+```
+gh api --method PUT repos/OWNER/REPO/branches/main/protection --input protection.json
+```
+
+This call replaces the branch's whole protection rule; merge the setting into any rule already there. With
+`enforce_admins` false, a pull request that carries no task (a documentation change, the follow-up that brings the
+store's records to `main`) has no status and is merged by an admin through the bypass, a deliberate step rather
+than a plain merge button. With `strict` false, GitHub does not require the branch to be up to date with `main`, so
+the merged result can hold changes on `main` the review did not see.
+
+What the rule does not stop:
+
+- **It checks a name, not who set it.** Anyone with write access can post a commit status named
+  `agent-gates/merge-go`, an agent holding the GitHub token included, and a CI job or check run given that name
+  satisfies the rule too. The adapter's guard denies posting the status or a check run with that name through
+  `gh api`, `curl` or `wget`, and asks on any other `gh api` call that is not a GET; it does not read workflow
+  files, where a job could take the name.
+- **An admin bypasses it from any client**: the web interface, `gh pr merge --admin`, the merge API, a push to
+  `main`. An agent's `gh` often holds an admin's token, so for agents the guard's denies (`gh pr merge` without
+  the go, `--admin`, the merge endpoints, a push to `main`) are what stop those routes, not GitHub.
+- **A status stays on its commit.** It is posted only after the go is recorded, and it is not removed when the go
+  is cleared; a push gives the pull request a new head without it.
 
 ## The state machine
 
@@ -132,6 +168,7 @@ than 5 seconds, an unreadable store file, an invalid new task) come from `gates/
 | `pr_head_unavailable` | `` could not read the head commit of pull request #{pr} with gh: {detail} `` |
 | `pr_head_invalid` | `` gh returned '{value}' as the head of pull request #{pr}, which is not a 40-character commit SHA. `` |
 | `compare_unavailable` | `` could not compare the reviewed head {reviewed} with head {head} of pull request #{pr} with gh: {detail} `` |
+| `merge_status_unavailable` | `` the merge go is recorded, but the commit status for head {head} of pull request #{pr} could not be posted with gh: {detail}. Run the merge go again. `` |
 | `merge_state_changed` | `` {task} changed while its pull request head was being read (it is no longer as it was when the approval began). Run the merge approval again. `` |
 | `new_planner_only` | `` only the planner creates tasks, not {actor}. Ask the planner to run `python gates/cli.py new --actor planner ...`. `` |
 | `path_outside_root` | `` the path {path} is outside the project root {root}. Give a path inside the project, relative to the directory that holds the store. `` |

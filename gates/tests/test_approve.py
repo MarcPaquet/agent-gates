@@ -39,8 +39,9 @@ class FakeStdin:
 class FakeGh:
     """A stand-in for `subprocess.run` that records each call and answers like `gh` would.
 
-    `gh pr view` gets `stdout`, `returncode` and `stderr`; `gh api` (the comparison with the reviewed head) gets
-    `compare_stdout`, `compare_returncode` and `compare_stderr`.
+    `gh pr view` gets `stdout`, `returncode` and `stderr`; `gh api` on a comparison with the reviewed head gets
+    `compare_stdout`, `compare_returncode` and `compare_stderr`; `gh api` on a commit status gets
+    `status_returncode` and `status_stderr`.
     """
 
     def __init__(
@@ -51,8 +52,12 @@ class FakeGh:
         compare_stdout: str = '"identical"\n',
         compare_returncode: int = 0,
         compare_stderr: str = "",
+        status_returncode: int = 0,
+        status_stderr: str = "",
     ) -> None:
         """Set the answers the calls return."""
+        self.status_returncode = status_returncode
+        self.status_stderr = status_stderr
         self.stdout = stdout
         self.returncode = returncode
         self.stderr = stderr
@@ -64,6 +69,8 @@ class FakeGh:
     def __call__(self, command: list[str], **options: Any) -> subprocess.CompletedProcess:
         """Record the command and return the answer set for its kind."""
         self.calls.append(command)
+        if command[:2] == ["gh", "api"] and any("/statuses/" in word for word in command):
+            return subprocess.CompletedProcess(command, self.status_returncode, stdout="{}", stderr=self.status_stderr)
         if command[:2] == ["gh", "api"]:
             return subprocess.CompletedProcess(
                 command, self.compare_returncode, stdout=self.compare_stdout, stderr=self.compare_stderr
@@ -305,13 +312,64 @@ class MergeTest(ApproveTestCase):
             ("pr_open", "pr_open", "human", HEAD, item["merge_approved_at"]),
         )
         lines = out.splitlines()
-        self.assertEqual(len(lines), 4)
+        self.assertEqual(len(lines), 5)
         self.assertIn("#7", lines[0])
         self.assertIn(HEAD[:7], lines[0])
         self.assertIn(item["merge_approved_at"], lines[0])
-        self.assertIn(f"gh pr merge 7 --squash --match-head-commit {HEAD}", lines[1])
-        self.assertIn("refuses this merge if the pull request head has moved", lines[2])
-        self.assertIn("voids the go", lines[3])
+        self.assertIn("agent-gates/merge-go set to success", lines[1])
+        self.assertIn(f"gh pr merge 7 --squash --match-head-commit {HEAD}", lines[2])
+        self.assertIn("refuses this merge if the pull request head has moved", lines[3])
+        self.assertIn("voids the go", lines[4])
+
+    def test_the_merge_go_posts_the_commit_status_on_the_approved_head(self) -> None:
+        self.pr_open_task()
+        gh = FakeGh()
+        self.assert_ok("T-001", "--merge", runner=gh)
+        self.assertEqual(
+            gh.calls[-1],
+            [
+                "gh", "api", "--method", "POST", f"repos/{{owner}}/{{repo}}/statuses/{HEAD}",
+                "-f", "state=success", "-f", "context=agent-gates/merge-go",
+                "-f", "description=The human's merge go for pull request #7",
+            ],
+        )
+
+    def test_the_status_is_posted_only_after_the_go_is_recorded(self) -> None:
+        self.pr_open_task()
+        store_path = self.store_path
+        seen: list[object] = []
+
+        def gh(command: list[str], **options: Any) -> subprocess.CompletedProcess:
+            if any("/statuses/" in word for word in command):
+                seen.append(store.load(store_path)["items"]["T-001"]["merge_approved_head"])
+            return FakeGh()(command, **options)
+
+        self.assert_ok("T-001", "--merge", runner=gh)
+        self.assertEqual(seen, [HEAD])
+
+    def test_no_status_is_posted_when_the_go_is_refused(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "example/linkcheck/linkcheck.py"))
+        self.assert_refused("files that are not records", "T-001", "--merge", runner=gh)
+        self.assertFalse(any("/statuses/" in word for command in gh.calls for word in command))
+
+    def test_a_failed_status_post_is_refused_and_keeps_the_recorded_go(self) -> None:
+        self.pr_open_task()
+        gh = FakeGh(status_returncode=1, status_stderr="HTTP 403: Resource not accessible")
+        err = self.assert_refused("the merge go is recorded, but the commit status", "T-001", "--merge", runner=gh)
+        self.assertIn("HTTP 403", err)
+        self.assertIn("Run the merge go again", err)
+        self.assertEqual(self.item()["merge_approved_head"], HEAD)
+        rerun = FakeGh()
+        self.assert_ok("T-001", "--merge", runner=rerun)
+        self.assertEqual(rerun.calls[-1][4], f"repos/{{owner}}/{{repo}}/statuses/{HEAD}")
+
+    def test_the_status_goes_on_the_approved_head_not_the_reviewed_head(self) -> None:
+        self.pr_open_task(reviewed_head=REVIEWED_HEAD)
+        gh = FakeGh(compare_stdout=compare_answer("ahead", "gates.json"))
+        self.assert_ok("T-001", "--merge", runner=gh)
+        status_calls = [command for command in gh.calls if any("/statuses/" in word for word in command)]
+        self.assertEqual([command[4] for command in status_calls], [f"repos/{{owner}}/{{repo}}/statuses/{HEAD}"])
 
     def test_the_merge_comment_is_added_to_the_history_reason(self) -> None:
         self.pr_open_task()
@@ -322,7 +380,7 @@ class MergeTest(ApproveTestCase):
         self.pr_open_task()
         gh = FakeGh()
         self.assert_ok("T-001", "--merge", runner=gh)
-        self.assertEqual([command[:3] for command in gh.calls], [["gh", "pr", "view"]])
+        self.assertFalse(any("/compare/" in word for command in gh.calls for word in command))
 
     def test_the_merge_go_is_allowed_when_only_records_follow_the_reviewed_head(self) -> None:
         self.pr_open_task(reviewed_head=REVIEWED_HEAD)
