@@ -45,7 +45,7 @@ run, `gh pr merge N --squash --match-head-commit <SHA>`. The adapter's guard den
 `--match-head-commit <SHA>` (the method flags `--squash`, `--merge` and `--rebase`, and `--delete-branch` and
 `--auto`, are allowed beside it), and denies it unless a task in `pr_open` has that pull request and that head
 approved. The go is not a transition: the task stays in `pr_open`. A move back to `in_review` after a push clears
-it.
+it, and so does an escalation.
 
 ### Branch protection
 
@@ -109,7 +109,7 @@ No transition leaves a terminal state. A task holds its `owns` globs in `in_prog
 | `ready` | `in_progress` | planner | The contract file exists, the task owns at least one glob, and no dispatched task's globs overlap them. Records who the task went to and when. |
 | `in_progress` | `in_review` | worker | The contract has a Concerns table with at least one row and every row's Status is `addressed`, `not applicable` or `deferred`; the progress log has an entry written at or after the dispatch. |
 | `in_review` | `changes_requested` | reviewer | `--verdict` names an existing file with exactly one `Overall: FAIL` line, not recorded by any task before, with one `Head commit:` line starting with the full SHA reviewed and one `Contract:` line naming the task's contract. Adds one to `review_cycles`; the history records the head. |
-| `in_review` | `pr_open` | reviewer | The same verdict checks, with `Overall: PASS`; `--pr N` is a positive integer. Records the verdict's head as the task's `reviewed_head`. |
+| `in_review` | `pr_open` | reviewer | The same verdict checks, with `Overall: PASS`; `--pr N` is a positive integer. Records the verdict's head as the task's `reviewed_head`, and clears a merge go left from an earlier review. |
 | `changes_requested` | `in_progress` | planner | `review_cycles` is below 2, then the same checks as the first dispatch. After the second failed review the retry is refused and the planner escalates instead. Resets the dispatch time, so the worker must write a new note. |
 | `pr_open` | `in_review` | planner | `--head` is a full 40-character commit SHA (the pull request's new head). Clears the reviewed head and the merge go; spends no review cycle. |
 | `pr_open` | `done` | planner, human | Nothing: the command line does not check that the pull request was merged. |
@@ -117,7 +117,7 @@ No transition leaves a terminal state. A task holds its `owns` globs in `in_prog
 | `in_progress` | `escalated` | planner, worker, reviewer | As above. |
 | `in_review` | `escalated` | planner, worker, reviewer | As above. |
 | `changes_requested` | `escalated` | planner, worker, reviewer | As above. |
-| `pr_open` | `escalated` | planner, worker, reviewer | As above. The four fields are stored in the task's `escalation`, with the state it came from, the actor and the time. |
+| `pr_open` | `escalated` | planner, worker, reviewer | As above, and the reviewed head and the merge go are cleared. For all five, the four fields are stored in the task's `escalation`, with the state it came from, the actor and the time. |
 | `escalated` | `ready` | human | The actor is the human. Clears `escalation`. |
 | `escalated` | `cancelled` | human | The actor is the human. Clears `escalation`. |
 

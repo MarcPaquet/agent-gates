@@ -430,15 +430,17 @@ def apply_transition(
         item["verdicts"].append(evidence.verdict_path)
         item["pr"] = evidence.pr
         item["reviewed_head"] = evidence.verdict_head
+        item["merge_approved_head"] = None
+        item["merge_approved_at"] = None
         event["verdict"] = evidence.verdict_path
         event["pr"] = evidence.pr
         event["head"] = evidence.verdict_head
     elif to_state == "in_review" and from_state == "pr_open":
-        item["reviewed_head"] = None
-        item["merge_approved_head"] = None
-        item["merge_approved_at"] = None
+        _void_review(item)
         event["head"] = evidence.head
     elif to_state == "escalated":
+        if from_state == "pr_open":
+            _void_review(item)
         item["escalation"] = {
             "reason": evidence.reason.strip(),
             "tried": evidence.tried.strip(),
@@ -497,7 +499,8 @@ def record_merge_approval(
 ) -> dict:
     """Check the merge approval, then return a new store recording it. The task stays in pr_open.
 
-    The input store is not changed. Any later move back to in_review (a new push) clears the approval.
+    The input store is not changed. The approval lasts while the task stays in pr_open: a move back to in_review
+    (a new push) or to escalated clears it, with the reviewed head, and the next passing review starts without one.
     """
     check_merge_approval(store, item_id, head=head, changed_since_review=changed_since_review)
     new_store = copy.deepcopy(dict(store))
@@ -515,6 +518,13 @@ def record_merge_approval(
         }
     )
     return new_store
+
+
+def _void_review(item: dict[str, Any]) -> None:
+    """Clear the reviewed head and the merge approval of a task that leaves pr_open without being closed."""
+    item["reviewed_head"] = None
+    item["merge_approved_head"] = None
+    item["merge_approved_at"] = None
 
 
 def _check_guards(store: Mapping, item_id: str, from_state: str, to_state: str, evidence: Evidence) -> None:
