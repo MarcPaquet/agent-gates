@@ -337,6 +337,13 @@ class ReviewTest(RefusalAssertions):
         self.assertEqual(item["history"][-1]["pr"], 7)
         self.assertEqual(item["history"][-1]["verdict"], "reviews/T-001-2.md")
 
+    def test_passed_review_clears_a_merge_approval_left_from_an_earlier_review(self) -> None:
+        store = single("in_review", pr=7, merge_approved_head=OTHER_SHA, merge_approved_at=AT)
+        item = self.assert_allowed(store, "pr_open", "reviewer", PASSED_REVIEW)["items"]["T-001"]
+        self.assertEqual(item["reviewed_head"], REVIEWED_SHA)
+        self.assertIsNone(item["merge_approved_head"])
+        self.assertIsNone(item["merge_approved_at"])
+
     def test_review_is_refused_for_every_other_actor(self) -> None:
         for to_state, evidence in self.REVIEWS:
             for actor in ("planner", "worker", "human"):
@@ -576,6 +583,16 @@ class EscalationTest(RefusalAssertions):
                 "at": LATER,
             },
         )
+
+    def test_escalation_from_pr_open_clears_the_reviewed_head_and_the_merge_approval(self) -> None:
+        store = single(
+            "pr_open", pr=7, reviewed_head=REVIEWED_SHA, merge_approved_head=REVIEWED_SHA, merge_approved_at=AT
+        )
+        item = self.assert_allowed(store, "escalated", "reviewer", ESCALATION)["items"]["T-001"]
+        self.assertIsNone(item["reviewed_head"])
+        self.assertIsNone(item["merge_approved_head"])
+        self.assertIsNone(item["merge_approved_at"])
+        self.assertEqual(item["pr"], 7)
 
     def test_escalation_reason_is_the_history_reason(self) -> None:
         new_store = self.assert_allowed(single("in_progress"), "escalated", "worker", ESCALATION)
