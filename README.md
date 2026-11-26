@@ -98,7 +98,8 @@ T-002 made the link checker skip and name a file that is not valid UTF-8 instead
 ([contract](contracts/T-002.md)). The [first verdict](reviews/T-002-verdict-c1.md) failed it: a checker that named
 the skipped file wrongly still passed every test. The retry fixed the tests, and the
 [second verdict](reviews/T-002-verdict-c2.md) passed, with 12 mutants each failing the test named for it. The human
-gave the merge go with `approve.py T-002 --merge` at a terminal, and the agent merged pull request #14 at that head.
+gave the merge go with `approve.py T-002 --merge` at a terminal, and pull request #14 was merged at the head the
+go approved.
 
 ### T-001: a merge around the gate
 
@@ -113,22 +114,25 @@ Each step, and what each verdict found, is in
 
 ## Limits
 
-- Roles are self-declared: an agent passes `--actor`. They are separated by the harness's permission tiers and
-  hooks, not by the library.
+- Roles are self-declared: an agent passes `--actor`, and neither the library nor the adapter checks it against
+  the agent that runs the command. The roles are kept apart by each agent's instructions and tool list; the
+  permission rules and the guard are the same for all three.
 - Only the human is identity-checked, by an interactive terminal and an agent environment variable.
-- The merge gate depends on the harness honouring hooks for merges an agent runs. For any other merge, the go
-  posts the commit status `agent-gates/merge-go` on the head it approves, and a branch protection rule that
-  requires that status makes GitHub refuse a merge of any other head, in the web interface too. The rule is a
-  repository setting, not part of the code ([setup](docs/reference.md#branch-protection)); T-001 was merged in
-  the web interface without a go, before the status existed. The rule checks a name, not who set it: anyone
-  with write access can post that status, and a CI job given that name satisfies it too. An admin bypasses the
-  rule from any client, and an agent's GitHub token is often an admin's; for agents, the guard is what denies
-  posting the status and merging as an admin.
+- For a merge an agent runs, the merge gate depends on the harness honouring hooks.
+- For any other merge, the go posts the commit status `agent-gates/merge-go` on the head it approves, and a
+  branch protection rule that requires that status makes GitHub refuse a merge of any other head, in the web
+  interface too. The rule is a repository setting, not part of the code
+  ([setup](docs/reference.md#branch-protection)); T-001 was merged in the web interface without a go, before the
+  status existed.
+- That rule checks a name, not who set it: anyone with write access can post the status, and a CI job given that
+  name satisfies it too. An admin bypasses the rule from any client, and an agent's GitHub token is often an
+  admin's; for agents, the guard is what denies posting the status and merging as an admin.
 - Changes to records after a passing review (the store, a progress log, a verdict) do not void it, and no one
   reviews them. The merge go reads the comparison with the reviewed head from GitHub, through `gh`.
 - A process that writes the store without the library bypasses the lock.
-- The store lives in the repository, so every task needs a follow-up pull request: the merge go and `done` are
-  written after the go, and a push to the pull request after the go leaves the go on an older head.
+- The store lives in the repository, so every task needs a follow-up pull request: the records of the merge go
+  and of `done` are written after the go, and pushing them to the task's pull request would move its head off
+  the commit the go approved.
 
 ## Reference
 
