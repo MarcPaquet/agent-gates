@@ -241,7 +241,8 @@ REFUSALS: dict[str, str] = {
         "the file {path} cannot be read ({detail}). Check that it is a readable file inside the project."
     ),
 }
-"""Every refusal message in the kit: rule name -> message template, filled with `str.format`."""
+"""Every refusal message of the state machine and the two command lines: rule name -> message template, filled
+with `str.format`. The store (`gates/store.py`) and the adapter's guard have their own messages."""
 
 
 class GateError(Exception):

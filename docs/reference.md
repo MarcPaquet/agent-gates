@@ -6,14 +6,15 @@ step, and the layout.
 
 ## Roles and the human's decisions
 
-Each role is one screen of harness-neutral prose in `roles/`. The roles are separated by the harness (here, the
-agent files in `.claude/agents/` and the guard hook), not by the library: the command line trusts the `--actor` an
-agent passes, except `human`.
+Each role is one screen of harness-neutral prose in `roles/`. The command line trusts the `--actor` an agent
+passes, except `human`, and nothing checks it against the agent that runs the command. Here the roles are kept
+apart by the agent files in `.claude/agents/`, each with its instructions and its tool list; the permission rules
+and the guard hook apply to all three alike.
 
 | Role | Does | Does not | Prose |
 |---|---|---|---|
 | planner | Writes the spec and the contract, creates the task (`new` is planner-only), dispatches it, retries it once after a failed review, sends it back to review after a push to its pull request, closes it after the merge, escalates | Build, review, write a verdict, run `gates/approve.py` | [`roles/planner.md`](../roles/planner.md) |
-| worker | Builds inside the task's `owns` globs, writes progress notes, fills the contract's Concerns table, submits for review, escalates | Review, merge, edit a test to make it pass, run `gates/approve.py` | [`roles/worker.md`](../roles/worker.md) |
+| worker | Builds inside the task's `owns` globs, writes progress notes, fills the contract's Concerns table, submits for review, opens the pull request (a PASS is recorded with its number), escalates | Review, merge, edit a test to make it pass, run `gates/approve.py` | [`roles/worker.md`](../roles/worker.md) |
 | reviewer | Runs the contract's checks, writes a new verdict file each review cycle, records FAIL or PASS (with the pull request number), escalates | Edit product code, review its own work, run `gates/approve.py` | [`roles/reviewer.md`](../roles/reviewer.md) |
 | human | Approves the spec, resolves an escalation (back to `ready`, or `cancelled`), gives the go to merge a pull request at its head, may close a merged task | — | `gates/approve.py` |
 
@@ -245,23 +246,23 @@ and pinned the output order with tests ([contract](../contracts/T-002.md), spec 
 3. **Cycle 1 failed.** The [first verdict](../reviews/T-002-verdict-c1.md) found that the new test passed absolute
    paths, so a checker that named the skipped file wrongly passed every test. It also noted that the sort test
    depended on the order the filesystem lists a folder.
-4. The planner dispatched the retry. A new worker changed only the tests: exact names from the fixture root, and
-   a fixed `Path.rglob` order for the sort test.
+4. The planner dispatched the retry. It changed only the tests: exact names from the fixture root, and a fixed
+   `Path.rglob` order for the sort test.
 5. **Cycle 2 passed.** The [second verdict](../reviews/T-002-verdict-c2.md) records 12 mutants, each failing the
    test named for it. Pull request #14 was opened and the reviewer moved the task to `pr_open`.
-6. **The merge went through the merge go.** The human ran `approve.py T-002 --merge` at a terminal outside the
-   agent session (the same command run from inside it was refused and recorded nothing). It recorded the pull
-   request's head, `8a8b6ff`. The agent then merged in the form the go prints,
-   `gh pr merge 14 --squash --match-head-commit` with that full head, and the planner closed the task with
-   `done`. As for T-001, the records written after the pull request opened reached `main` in a follow-up pull
-   request.
+6. **The merge went through the merge go.** The human ran `approve.py T-002 --merge`, which recorded the pull
+   request's head, `8a8b6ff`. Pull request #14 was squash-merged at that head, and the planner closed the task
+   with `done`. As for T-001, the records written after the pull request opened reached `main` in a follow-up
+   pull request, #15.
+
+Pull request #14 was squash-merged, so the commits its verdicts and the store name are not on `main`;
+`git fetch origin pull/14/head` brings them into a clone. T-001's are on `main`.
 
 ### T-001: a merge around the gate
 
 T-001 is the kit run on itself: a Markdown link checker ([spec](../example/linkcheck/SPEC.md),
 [contract](../contracts/T-001.md)), built in `example/linkcheck/` through the gate and merged into this repository.
-The store, the [progress log](../progress/T-001.md) and the two verdicts are committed as the run wrote them. The
-worker ran as Sonnet at low effort, each reviewer as Opus at high effort.
+The store, the [progress log](../progress/T-001.md) and the two verdicts are committed as the run wrote them.
 
 1. The planner wrote the spec and the contract and created the task in `draft`, owning `example/linkcheck/**`.
    The human approved the spec with `approve.py T-001 ready`.
@@ -272,10 +273,10 @@ worker ran as Sonnet at low effort, each reviewer as Opus at high effort.
    the stub reported through `self.fail`, whose AssertionError a checker's `except Exception` swallows. Two
    mutants that open a connection for every http(s) target passed all eight tests. The reviewer recorded FAIL; `review_cycles`
    went to 1.
-4. The planner dispatched the retry. A new worker stubbed both `socket.socket` and `socket.getaddrinfo` with a
+4. The planner dispatched the retry. The worker stubbed both `socket.socket` and `socket.getaddrinfo` with a
    recorder, asserted that no call was recorded, added a test of the directory output the verdict had also
    flagged, wrote a new note and submitted again.
-5. **Cycle 2 passed.** A new reviewer ran the checks and the mutants again; both fetching mutants now failed the
+5. **Cycle 2 passed.** The reviewer ran the checks and the mutants again; both fetching mutants now failed the
    test. The [second verdict](../reviews/T-001-verdict-c2.md) is PASS, with one should-fix left open (the directory
    test does not catch a checker that skips sorting) and three notes. Pull request #11 was opened and the reviewer
    moved the task to `pr_open`.
